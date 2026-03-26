@@ -9,6 +9,7 @@ import type {
   FinalReport,
   ImplementArtifact,
   ReviewArtifact,
+  ReviewOutput,
   TaskGraph,
   WorkflowEvent,
   WorkflowState,
@@ -41,14 +42,16 @@ export function createTaskCommitMessage(taskId: string, title: string) {
   return `Task ${taskId}: ${title}`
 }
 
-export async function finalizePassedTask(input: {
+export interface FinalizePassedTaskInput {
   graph: TaskGraph
-  review: ReviewArtifact['result']
+  review: ReviewOutput
   runtime: OrchestratorRuntime
   state: WorkflowState
   taskId: string
   taskTitle: string
-}) {
+}
+
+export async function finalizePassedTask(input: FinalizePassedTaskInput) {
   const integratingState = recordReviewApproved(
     input.state,
     input.taskId,
@@ -99,11 +102,7 @@ export async function finalizePassedTask(input: {
 
 export async function persistCommittedArtifacts(
   runtime: OrchestratorRuntime,
-  input: {
-    commitSha: string
-    implementArtifact: ImplementArtifact
-    reviewArtifact: ReviewArtifact
-  },
+  input: PersistCommittedArtifactsInput,
 ) {
   await runtime.store.saveImplementArtifact({
     ...input.implementArtifact,
@@ -116,3 +115,9 @@ export async function persistCommittedArtifacts(
 }
 
 export type WorkflowSummary = FinalReport['summary']
+
+export interface PersistCommittedArtifactsInput {
+  commitSha: string
+  implementArtifact: ImplementArtifact
+  reviewArtifact: ReviewArtifact
+}

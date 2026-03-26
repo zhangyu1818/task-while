@@ -3,9 +3,13 @@ import { finalizeTaskCheckbox } from './finalize-task-checkbox'
 import type { ReviewerProvider } from '../agents/types'
 import type { DirectWorkflowPreset } from './preset'
 
-export function createDirectWorkflowPreset(input: {
+export interface CreateDirectWorkflowPresetInput {
   reviewer: ReviewerProvider
-}): DirectWorkflowPreset {
+}
+
+export function createDirectWorkflowPreset(
+  input: CreateDirectWorkflowPresetInput,
+): DirectWorkflowPreset {
   return {
     mode: 'direct',
     async integrate(context) {

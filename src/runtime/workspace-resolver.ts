@@ -1,48 +1,32 @@
-import { execFile } from 'node:child_process'
-import { constants } from 'node:fs'
-import { access, readdir } from 'node:fs/promises'
 import path from 'node:path'
-import { promisify } from 'node:util'
+
+import { execa } from 'execa'
+import * as fsExtra from 'fs-extra'
 
 import type { WorkspaceContext } from '../types'
 
-const execFileAsync = promisify(execFile)
-
 export interface ResolveWorkspaceContextInput {
   cwd: string
-  env?: NodeJS.ProcessEnv | undefined
   feature?: string | undefined
-  workspace?: string | undefined
 }
 
-async function exists(targetPath: string) {
-  try {
-    await access(targetPath, constants.F_OK)
-    return true
-  } catch {
-    return false
-  }
-}
+const requiredFeatureFiles = ['spec.md', 'plan.md', 'tasks.md'] as const
 
-async function findWorkspaceRoot(startDir: string) {
-  let current = path.resolve(startDir)
-  for (;;) {
-    if (await exists(path.join(current, 'specs'))) {
-      return current
-    }
-    const parent = path.dirname(current)
-    if (parent === current) {
-      throw new Error(
-        'Unable to locate a Spec Kit workspace from current directory',
-      )
-    }
-    current = parent
+async function resolveWorkspaceRoot(cwd: string) {
+  const workspaceRoot = path.resolve(cwd)
+  const specsPath = path.join(workspaceRoot, 'specs')
+  const specsExists = await fsExtra.pathExists(specsPath)
+  if (!specsExists) {
+    throw new Error(
+      'Current working directory must contain a specs/ directory. Run spec-while from the workspace root.',
+    )
   }
+  return workspaceRoot
 }
 
 async function readFeatureDirs(workspaceRoot: string) {
   const specsDir = path.join(workspaceRoot, 'specs')
-  const entries = await readdir(specsDir, {
+  const entries = await fsExtra.readdir(specsDir, {
     withFileTypes: true,
   })
   return entries
@@ -52,7 +36,7 @@ async function readFeatureDirs(workspaceRoot: string) {
 
 async function detectGitBranch(workspaceRoot: string) {
   try {
-    const { stdout } = await execFileAsync(
+    const { stdout } = await execa(
       'git',
       ['rev-parse', '--abbrev-ref', 'HEAD'],
       {
@@ -74,17 +58,26 @@ function matchFeatureByPrefix(featureDirs: string[], branch: string) {
   return featureDirs.find((feature) => feature.startsWith(`${prefix}-`)) ?? null
 }
 
+async function assertRequiredFeatureFiles(
+  featureDir: string,
+  featureId: string,
+) {
+  for (const fileName of requiredFeatureFiles) {
+    const filePath = path.join(featureDir, fileName)
+    const fileExists = await fsExtra.pathExists(filePath)
+    if (!fileExists) {
+      throw new Error(`Feature ${featureId} is missing ${fileName}`)
+    }
+  }
+}
+
 export async function resolveWorkspaceContext(
   input: ResolveWorkspaceContextInput,
 ): Promise<WorkspaceContext> {
-  const workspaceRoot = input.workspace
-    ? path.resolve(input.workspace)
-    : await findWorkspaceRoot(input.cwd)
+  const workspaceRoot = await resolveWorkspaceRoot(input.cwd)
 
   const featureDirs = await readFeatureDirs(workspaceRoot)
-  const env = input.env ?? process.env
-
-  let featureId = input.feature ?? env.SPECIFY_FEATURE ?? null
+  let featureId = input.feature ?? null
 
   if (!featureId) {
     const branch = await detectGitBranch(workspaceRoot)
@@ -106,6 +99,7 @@ export async function resolveWorkspaceContext(
   }
 
   const featureDir = path.join(workspaceRoot, 'specs', featureId)
+  await assertRequiredFeatureFiles(featureDir, featureId)
   return {
     featureDir,
     featureId,

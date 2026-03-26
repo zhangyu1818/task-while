@@ -33,21 +33,25 @@ const workflowConfigSchema = z
   .strict()
   .default({})
 
-export type WorkflowProvider = z.infer<typeof workflowProviderSchema>
-export type WorkflowMode = z.infer<typeof workflowModeSchema>
+export type WorkflowProvider = 'claude' | 'codex'
+export type WorkflowMode = 'direct' | 'pull-request'
+
+export interface WorkflowRoleConfig {
+  provider: WorkflowProvider
+}
+
+export interface WorkflowRolesConfig {
+  implementer: WorkflowRoleConfig
+  reviewer: WorkflowRoleConfig
+}
+
+export interface WorkflowSettingsConfig {
+  mode: WorkflowMode
+  roles: WorkflowRolesConfig
+}
 
 export interface WorkflowConfig {
-  workflow: {
-    mode: WorkflowMode
-    roles: {
-      implementer: {
-        provider: WorkflowProvider
-      }
-      reviewer: {
-        provider: WorkflowProvider
-      }
-    }
-  }
+  workflow: WorkflowSettingsConfig
 }
 
 export async function loadWorkflowConfig(
@@ -57,7 +61,8 @@ export async function loadWorkflowConfig(
   let rawConfig: unknown = {}
 
   try {
-    rawConfig = parse(await readFile(configPath, 'utf8')) ?? {}
+    const configSource = await readFile(configPath, 'utf8')
+    rawConfig = parse(configSource) ?? {}
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw error

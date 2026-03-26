@@ -1,10 +1,12 @@
 import type { OrchestratorRuntime } from '../core/runtime'
 
-export async function finalizeTaskCheckbox(input: {
+export interface FinalizeTaskCheckboxInput {
   commitMessage: string
   runtime: OrchestratorRuntime
   taskId: string
-}) {
+}
+
+export async function finalizeTaskCheckbox(input: FinalizeTaskCheckboxInput) {
   let taskChecked = false
   try {
     await input.runtime.workspace.updateTaskChecks([

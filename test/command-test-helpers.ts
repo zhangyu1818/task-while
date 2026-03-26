@@ -1,8 +1,8 @@
-import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
+
+import { execa } from 'execa'
 
 import type {
   ImplementAgentInput,
@@ -10,9 +10,16 @@ import type {
   ReviewAgentInput,
   ReviewerProvider,
 } from '../src/agents/types'
-import type { WorkspaceContext } from '../src/types'
+import type { ReviewOutput, WorkspaceContext } from '../src/types'
 
-const execFileAsync = promisify(execFile)
+export interface CreateWorkspaceInput {
+  includeSecondTask?: boolean
+  maxAttempts?: number
+}
+
+export type ScriptedReviewHandler = (
+  input: ReviewAgentInput,
+) => Promise<ReviewOutput>
 
 export class ScriptedWorkflowProvider
   implements ImplementerProvider, ReviewerProvider
@@ -25,9 +32,7 @@ export class ScriptedWorkflowProvider
     private readonly implementHandler: (
       input: ImplementAgentInput,
     ) => Promise<void>,
-    private readonly reviewHandler: (
-      input: ReviewAgentInput,
-    ) => Promise<Awaited<ReturnType<ReviewerProvider['review']>>>,
+    private readonly reviewHandler: ScriptedReviewHandler,
   ) {}
 
   public async implement(input: ImplementAgentInput) {
@@ -51,7 +56,7 @@ export class ScriptedWorkflowProvider
 }
 
 export async function git(root: string, args: string[]) {
-  const result = await execFileAsync('git', args, {
+  const result = await execa('git', args, {
     cwd: root,
   })
   return result.stdout.trim()
@@ -79,10 +84,7 @@ export async function trackedFilesInHead(root: string) {
   return output.split('\n').filter(Boolean)
 }
 
-export async function createWorkspace(input?: {
-  includeSecondTask?: boolean
-  maxAttempts?: number
-}) {
+export async function createWorkspace(input?: CreateWorkspaceInput) {
   const root = await mkdtemp(path.join(tmpdir(), 'while-commands-'))
   const featureDir = path.join(root, 'specs', '001-demo')
   const maxAttempts = input?.maxAttempts ?? 2
@@ -161,7 +163,7 @@ ${
   return { context, featureDir, root }
 }
 
-export function createPassingReview(input: ReviewAgentInput) {
+export function createPassingReview(input: ReviewAgentInput): ReviewOutput {
   return {
     findings: [],
     overallRisk: 'low' as const,

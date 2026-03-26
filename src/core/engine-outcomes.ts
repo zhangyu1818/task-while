@@ -42,10 +42,7 @@ export function recordIntegrateResult(
   _graph: TaskGraph,
   state: WorkflowState,
   taskId: string,
-  input: {
-    commitSha: string
-    review: ReviewOutput
-  },
+  input: RecordIntegrateResultInput,
 ): WorkflowState {
   const next = cloneState(state)
   const taskState = getTaskState(next, taskId)
@@ -65,6 +62,11 @@ export function recordIntegrateResult(
     status: 'done',
   }
   return next
+}
+
+export interface RecordIntegrateResultInput {
+  commitSha: string
+  review: ReviewOutput
 }
 
 export function recordCommitFailure(

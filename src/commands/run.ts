@@ -1,8 +1,16 @@
-import { createCodexProvider } from '../agents/codex'
-import { runWorkflow } from '../core/orchestrator'
+import {
+  createCodexProvider,
+  type CodexThreadEvent,
+  type CodexThreadEventHandler,
+} from '../agents/codex'
+import { runWorkflow, type WorkflowRunResult } from '../core/orchestrator'
 import { normalizeTaskGraph } from '../core/task-normalizer'
-import { createFsRuntime } from '../runtime/fs-runtime'
-import { loadWorkflowConfig, type WorkflowConfig } from '../workflow/config'
+import { createOrchestratorRuntime } from '../runtime/fs-runtime'
+import {
+  loadWorkflowConfig,
+  type WorkflowConfig,
+  type WorkflowProvider,
+} from '../workflow/config'
 import {
   createDirectWorkflowPreset,
   createPullRequestWorkflowPreset,
@@ -23,13 +31,56 @@ export interface RunCommandOptions {
   verbose?: boolean
 }
 
-function writeCodexEvent(event: { item?: { type?: string }; type: string }) {
-  process.stderr.write(
-    `[codex] ${event.type}${event.item?.type ? ` ${event.item.type}` : ''}\n`,
-  )
+export type WorkflowExecutionRunner = () => Promise<WorkflowRunResult>
+
+export interface WorkflowExecution {
+  config: WorkflowConfig
+  execute: WorkflowExecutionRunner
+  workflow: WorkflowRuntime
 }
 
-function createCodexEventHandler(verbose: boolean | undefined) {
+export interface ResolveWorkflowRuntimeInput {
+  config: WorkflowConfig
+  context: WorkspaceContext
+  options: RunCommandOptions
+}
+
+export type ProviderResolver = (
+  providerName: WorkflowProvider,
+) => ImplementerProvider & ReviewerProvider
+
+export type RemoteReviewerResolver = (
+  providerName: WorkflowProvider,
+) => RemoteReviewerProvider
+
+function writeCodexEvent(event: CodexThreadEvent) {
+  const itemType =
+    event.type === 'item.completed' ||
+    event.type === 'item.started' ||
+    event.type === 'item.updated'
+      ? event.item.type
+      : null
+  process.stderr.write(
+    `[codex] ${event.type}${itemType ? ` ${itemType}` : ''}\n`,
+  )
+  if (
+    event.type === 'item.completed' &&
+    event.item.type === 'agent_message' &&
+    event.item.text?.trim()
+  ) {
+    process.stderr.write(`[codex] message ${event.item.text.trim()}\n`)
+  }
+  if (event.type === 'error') {
+    process.stderr.write(`[codex] error ${event.message}\n`)
+  }
+  if (event.type === 'turn.failed') {
+    process.stderr.write(`[codex] error ${event.error.message}\n`)
+  }
+}
+
+function createCodexEventHandler(
+  verbose: boolean | undefined,
+): CodexThreadEventHandler | undefined {
   if (!verbose) {
     return undefined
   }
@@ -39,14 +90,12 @@ function createCodexEventHandler(verbose: boolean | undefined) {
 function createProviderResolver(
   context: WorkspaceContext,
   verbose: boolean | undefined,
-) {
+): ProviderResolver {
   const cache = new Map<
-    WorkflowConfig['workflow']['roles']['implementer']['provider'],
+    WorkflowProvider,
     ImplementerProvider & ReviewerProvider
   >()
-  return (
-    providerName: WorkflowConfig['workflow']['roles']['implementer']['provider'],
-  ) => {
+  return (providerName: WorkflowProvider) => {
     if (providerName === 'claude') {
       throw new Error(
         'claude provider is not available in CLI mode because no Claude adapter is configured',
@@ -70,14 +119,9 @@ function createProviderResolver(
   }
 }
 
-function createRemoteReviewerResolver() {
-  const cache = new Map<
-    WorkflowConfig['workflow']['roles']['reviewer']['provider'],
-    RemoteReviewerProvider
-  >()
-  return (
-    providerName: WorkflowConfig['workflow']['roles']['reviewer']['provider'],
-  ) => {
+function createRemoteReviewerResolver(): RemoteReviewerResolver {
+  const cache = new Map<WorkflowProvider, RemoteReviewerProvider>()
+  return (providerName: WorkflowProvider) => {
     const cached = cache.get(providerName)
     if (cached) {
       return cached
@@ -94,19 +138,20 @@ function createRemoteReviewerResolver() {
 }
 
 function resolveWorkflowRuntime(
-  context: WorkspaceContext,
-  config: WorkflowConfig,
-  options: RunCommandOptions,
+  input: ResolveWorkflowRuntimeInput,
 ): WorkflowRuntime {
-  const resolveProvider = createProviderResolver(context, options.verbose)
+  const resolveProvider = createProviderResolver(
+    input.context,
+    input.options.verbose,
+  )
   const implementer = resolveProvider(
-    config.workflow.roles.implementer.provider,
+    input.config.workflow.roles.implementer.provider,
   )
 
-  if (config.workflow.mode === 'pull-request') {
+  if (input.config.workflow.mode === 'pull-request') {
     const resolveRemoteReviewer = createRemoteReviewerResolver()
     const reviewer = resolveRemoteReviewer(
-      config.workflow.roles.reviewer.provider,
+      input.config.workflow.roles.reviewer.provider,
     )
     const roles: WorkflowRoleProviders = {
       implementer,
@@ -121,7 +166,9 @@ function resolveWorkflowRuntime(
     }
   }
 
-  const reviewer = resolveProvider(config.workflow.roles.reviewer.provider)
+  const reviewer = resolveProvider(
+    input.config.workflow.roles.reviewer.provider,
+  )
   const roles: WorkflowRoleProviders = {
     implementer,
     reviewer,
@@ -135,19 +182,17 @@ function resolveWorkflowRuntime(
   }
 }
 
-export interface WorkflowExecution {
-  config: WorkflowConfig
-  execute: () => ReturnType<typeof runWorkflow>
-  workflow: WorkflowRuntime
-}
-
 export async function loadWorkflowExecution(
   context: WorkspaceContext,
   options: RunCommandOptions = {},
 ): Promise<WorkflowExecution> {
   const config = await loadWorkflowConfig(context.workspaceRoot)
-  const workflow = resolveWorkflowRuntime(context, config, options)
-  const runtime = createFsRuntime({
+  const workflow = resolveWorkflowRuntime({
+    config,
+    context,
+    options,
+  })
+  const runtime = createOrchestratorRuntime({
     featureDir: context.featureDir,
     workspaceRoot: context.workspaceRoot,
   })

@@ -1,26 +1,32 @@
-import { execFile, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
 
+import { execa } from 'execa'
 import { expect, test } from 'vitest'
 
 import { runWorkflow } from '../src/core/orchestrator'
 import { normalizeTaskGraph } from '../src/core/task-normalizer'
-import { createFsRuntime } from '../src/runtime/fs-runtime'
+import { createOrchestratorRuntime } from '../src/runtime/fs-runtime'
 import {
   createWorkflow,
   ScriptedWorkflowProvider,
 } from './workflow-test-helpers'
 
-const execFileAsync = promisify(execFile)
+import type { WorkflowState } from '../src/types'
+
 const cliEntry = fileURLToPath(
   new URL('../bin/spec-while.mjs', import.meta.url),
 )
 
 async function createWorkspace() {
+  return createWorkspaceWithOptions()
+}
+
+async function createWorkspaceWithOptions(
+  options: { omitFeatureFiles?: string[] } = {},
+) {
   const root = await mkdtemp(path.join(tmpdir(), 'while-cli-'))
   const featureDir = path.join(root, 'specs', '001-demo')
   await mkdir(featureDir, { recursive: true })
@@ -29,11 +35,16 @@ async function createWorkspace() {
     path.join(root, 'src', 'parser.ts'),
     'export const value = 1\n',
   )
-  await writeFile(path.join(featureDir, 'spec.md'), '# spec\n')
-  await writeFile(path.join(featureDir, 'plan.md'), '# plan\n')
-  await writeFile(
-    path.join(featureDir, 'tasks.md'),
-    `
+  if (!options.omitFeatureFiles?.includes('spec.md')) {
+    await writeFile(path.join(featureDir, 'spec.md'), '# spec\n')
+  }
+  if (!options.omitFeatureFiles?.includes('plan.md')) {
+    await writeFile(path.join(featureDir, 'plan.md'), '# plan\n')
+  }
+  if (!options.omitFeatureFiles?.includes('tasks.md')) {
+    await writeFile(
+      path.join(featureDir, 'tasks.md'),
+      `
 # Tasks
 
 ## Phase 1: Setup
@@ -46,57 +57,44 @@ async function createWorkspace() {
     - naming clarity
   - Max Iterations: 2
 `,
-  )
+    )
+  }
   await writeFile(path.join(root, '.gitignore'), '.while\n')
-  await execFileAsync('git', ['init'], { cwd: root })
-  await execFileAsync('git', ['config', 'user.name', 'While Test'], {
+  await execa('git', ['init'], { cwd: root })
+  await execa('git', ['config', 'user.name', 'While Test'], {
     cwd: root,
   })
-  await execFileAsync('git', ['config', 'user.email', 'while@example.com'], {
+  await execa('git', ['config', 'user.email', 'while@example.com'], {
     cwd: root,
   })
-  await execFileAsync('git', ['add', '.'], { cwd: root })
-  await execFileAsync('git', ['commit', '-m', 'Initial commit'], { cwd: root })
+  await execa('git', ['add', '.'], { cwd: root })
+  await execa('git', ['commit', '-m', 'Initial commit'], { cwd: root })
   return { featureDir, root }
 }
 
 function runCli(args: string[], cwd: string) {
-  return new Promise<{ code: null | number; stderr: string; stdout: string }>(
-    (resolve) => {
-      const child = spawn(process.execPath, [cliEntry, ...args], {
-        cwd,
-        env: process.env,
-      })
-
-      let stdout = ''
-      let stderr = ''
-      child.stdout.on('data', (chunk) => {
-        stdout += String(chunk)
-      })
-      child.stderr.on('data', (chunk) => {
-        stderr += String(chunk)
-      })
-      child.on('close', (code) => {
-        resolve({ code, stderr, stdout })
-      })
-    },
-  )
+  return execa(process.execPath, [cliEntry, ...args], {
+    cwd,
+    env: process.env,
+    reject: false,
+  }).then((result) => ({
+    code: result.exitCode,
+    stderr: result.stderr,
+    stdout: result.stdout,
+  }))
 }
 
 test('spec-while rejects unknown commands', async () => {
   const { root } = await createWorkspace()
-  const result = await runCli(
-    ['unknown', '--workspace', root, '--feature', '001-demo'],
-    root,
-  )
+  const result = await runCli(['unknown', '--feature', '001-demo'], root)
 
   expect(result.code).not.toBe(0)
   expect(result.stderr).toMatch(/unknown command/i)
 })
 
-test('spec-while rewind resolves workspace from the actual current directory and rewinds lifecycle state', async () => {
+test('spec-while rewind works when run from the workspace root', async () => {
   const { featureDir, root } = await createWorkspace()
-  const runtime = createFsRuntime({
+  const runtime = createOrchestratorRuntime({
     featureDir,
     workspaceRoot: root,
   })
@@ -140,20 +138,12 @@ test('spec-while rewind resolves workspace from the actual current directory and
     ),
   })
 
-  const result = await runCli(
-    ['rewind', '--task', 'T001'],
-    path.join(root, 'src'),
-  )
+  const result = await runCli(['rewind', '--task', 'T001'], root)
 
   expect(result.code).toBe(0)
   const state = JSON.parse(
     await readFile(path.join(featureDir, '.while', 'state.json'), 'utf8'),
-  ) as {
-    tasks: Record<
-      string,
-      { attempt: number; generation: number; status: string }
-    >
-  }
+  ) as WorkflowState
   const tasksMd = await readFile(path.join(featureDir, 'tasks.md'), 'utf8')
   expect(state.tasks.T001).toMatchObject({
     attempt: 0,
@@ -163,4 +153,27 @@ test('spec-while rewind resolves workspace from the actual current directory and
   expect(tasksMd).toMatch(/- \[ \] T001/)
   expect(result.stdout).toMatch(/T001/)
   expect(result.stderr).toBe('')
+})
+
+test('spec-while rejects nested cwd values that do not contain specs directly', async () => {
+  const { root } = await createWorkspace()
+
+  const result = await runCli(
+    ['run', '--feature', '001-demo'],
+    path.join(root, 'src'),
+  )
+
+  expect(result.code).not.toBe(0)
+  expect(result.stderr).toMatch(/current working directory.*specs/i)
+})
+
+test('spec-while run rejects features missing plan.md', async () => {
+  const { root } = await createWorkspaceWithOptions({
+    omitFeatureFiles: ['plan.md'],
+  })
+
+  const result = await runCli(['run', '--feature', '001-demo'], root)
+
+  expect(result.code).not.toBe(0)
+  expect(result.stderr).toMatch(/001-demo.*plan\.md/i)
 })

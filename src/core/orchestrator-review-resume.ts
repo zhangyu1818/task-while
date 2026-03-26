@@ -1,4 +1,8 @@
 import {
+  isPullRequestWorkflowPreset,
+  type WorkflowRuntime,
+} from '../workflow/preset'
+import {
   recordCommitFailure,
   recordIntegrateResult,
   recordReviewApproved,
@@ -21,17 +25,25 @@ import type {
   TaskGraph,
   WorkflowState,
 } from '../types'
-import type { WorkflowRuntime } from '../workflow/preset'
 import type { OrchestratorRuntime } from './runtime'
 
-export async function resumePullRequestReview(input: {
+export interface ResumePullRequestReviewInput {
   graph: TaskGraph
   runtime: OrchestratorRuntime
   state: WorkflowState
   workflow: WorkflowRuntime
-}): Promise<null | { report: FinalReport; state: WorkflowState }> {
+}
+
+export interface ResumePullRequestReviewResult {
+  report: FinalReport
+  state: WorkflowState
+}
+
+export async function resumePullRequestReview(
+  input: ResumePullRequestReviewInput,
+): Promise<null | ResumePullRequestReviewResult> {
   const preset = input.workflow.preset
-  if (preset.mode !== 'pull-request' || !input.state.currentTaskId) {
+  if (!isPullRequestWorkflowPreset(preset) || !input.state.currentTaskId) {
     return null
   }
 

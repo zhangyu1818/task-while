@@ -1,29 +1,41 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
+import type { CodexAgentClientOptions } from '../src/agents/codex'
 import type { ImplementerProvider, ReviewerProvider } from '../src/agents/types'
 import type { OrchestratorRuntime } from '../src/core/runtime'
 import type { TaskGraph, WorkspaceContext } from '../src/types'
-import type { WorkflowConfig } from '../src/workflow/config'
+import type {
+  WorkflowConfig,
+  WorkflowProvider,
+  WorkflowRoleConfig,
+} from '../src/workflow/config'
+
+interface MockCodexInstance {
+  options: CodexAgentClientOptions
+  provider: ImplementerProvider & ReviewerProvider
+}
+
+function createWorkflowRoleConfig(
+  provider: WorkflowProvider = 'codex',
+): WorkflowRoleConfig {
+  return {
+    provider,
+  }
+}
 
 const mockState = vi.hoisted(() => {
   return {
     callSequence: [] as string[],
+    codexInstances: [] as MockCodexInstance[],
     runWorkflowCalls: [] as unknown[],
     workflowConfigCalls: [] as string[],
     workflowConfigError: null as Error | null,
-    codexInstances: [] as {
-      options: {
-        onEvent?: (event: { item?: { type?: string }; type: string }) => void
-        workspaceRoot: string
-      }
-      provider: ImplementerProvider & ReviewerProvider
-    }[],
     config: {
       workflow: {
         mode: 'direct',
         roles: {
-          implementer: { provider: 'codex' },
-          reviewer: { provider: 'codex' },
+          implementer: createWorkflowRoleConfig(),
+          reviewer: createWorkflowRoleConfig(),
         },
       },
     } as WorkflowConfig,
@@ -56,48 +68,43 @@ vi.mock('../src/workflow/config', () => {
 
 vi.mock('../src/agents/codex', () => {
   return {
-    createCodexProvider: vi.fn(
-      (options: {
-        onEvent?: (event: { item?: { type?: string }; type: string }) => void
-        workspaceRoot: string
-      }) => {
-        const provider: ImplementerProvider & ReviewerProvider = {
-          name: 'codex',
-          async implement() {
-            return {
-              assumptions: [],
-              needsHumanAttention: false,
-              notes: [],
-              status: 'implemented' as const,
-              summary: 'unused',
-              taskId: 'T001',
-              unresolvedItems: [],
-            }
-          },
-          async review() {
-            return {
-              findings: [],
-              overallRisk: 'low' as const,
-              summary: 'unused',
-              taskId: 'T001',
-              verdict: 'pass' as const,
-              acceptanceChecks: [
-                {
-                  criterion: 'unused',
-                  note: 'unused',
-                  status: 'pass' as const,
-                },
-              ],
-            }
-          },
-        }
-        mockState.codexInstances.push({
-          options,
-          provider,
-        })
-        return provider
-      },
-    ),
+    createCodexProvider: vi.fn((options: CodexAgentClientOptions) => {
+      const provider: ImplementerProvider & ReviewerProvider = {
+        name: 'codex',
+        async implement() {
+          return {
+            assumptions: [],
+            needsHumanAttention: false,
+            notes: [],
+            status: 'implemented' as const,
+            summary: 'unused',
+            taskId: 'T001',
+            unresolvedItems: [],
+          }
+        },
+        async review() {
+          return {
+            findings: [],
+            overallRisk: 'low' as const,
+            summary: 'unused',
+            taskId: 'T001',
+            verdict: 'pass' as const,
+            acceptanceChecks: [
+              {
+                criterion: 'unused',
+                note: 'unused',
+                status: 'pass' as const,
+              },
+            ],
+          }
+        },
+      }
+      mockState.codexInstances.push({
+        options,
+        provider,
+      })
+      return provider
+    }),
   }
 })
 
@@ -112,7 +119,7 @@ vi.mock('../src/core/task-normalizer', () => {
 
 vi.mock('../src/runtime/fs-runtime', () => {
   return {
-    createFsRuntime: vi.fn(() => {
+    createOrchestratorRuntime: vi.fn(() => {
       mockState.callSequence.push('runtime')
       return mockState.runtime
     }),
@@ -163,8 +170,8 @@ beforeEach(() => {
     workflow: {
       mode: 'direct',
       roles: {
-        implementer: { provider: 'codex' },
-        reviewer: { provider: 'codex' },
+        implementer: createWorkflowRoleConfig(),
+        reviewer: createWorkflowRoleConfig(),
       },
     },
   }
@@ -179,8 +186,8 @@ test('loadWorkflowExecution rejects claude providers before runtime setup becaus
     workflow: {
       mode: 'direct',
       roles: {
-        implementer: { provider: 'claude' },
-        reviewer: { provider: 'codex' },
+        implementer: createWorkflowRoleConfig('claude'),
+        reviewer: createWorkflowRoleConfig(),
       },
     },
   }
@@ -220,8 +227,8 @@ test('loadWorkflowExecution selects the pull-request preset when workflow.mode i
     workflow: {
       mode: 'pull-request',
       roles: {
-        implementer: { provider: 'codex' },
-        reviewer: { provider: 'codex' },
+        implementer: createWorkflowRoleConfig(),
+        reviewer: createWorkflowRoleConfig(),
       },
     },
   }
@@ -247,8 +254,8 @@ test('loadWorkflowExecution rejects unsupported remote reviewers in pull-request
     workflow: {
       mode: 'pull-request',
       roles: {
-        implementer: { provider: 'codex' },
-        reviewer: { provider: 'claude' },
+        implementer: createWorkflowRoleConfig(),
+        reviewer: createWorkflowRoleConfig('claude'),
       },
     },
   }

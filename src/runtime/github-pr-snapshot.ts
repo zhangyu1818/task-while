@@ -17,12 +17,16 @@ import type {
 
 export type RunGh = (args: string[]) => Promise<string>
 
-export async function getPullRequestSnapshotViaGraphQL(input: {
+export interface GetPullRequestSnapshotViaGraphQLInput {
   owner: string
   pullRequestNumber: number
   repo: string
   runGh: RunGh
-}): Promise<PullRequestSnapshot> {
+}
+
+export async function getPullRequestSnapshotViaGraphQL(
+  input: GetPullRequestSnapshotViaGraphQLInput,
+): Promise<PullRequestSnapshot> {
   const changedFiles: string[] = []
   const discussionComments: PullRequestDiscussionComment[] = []
   const reactions: PullRequestReaction[] = []

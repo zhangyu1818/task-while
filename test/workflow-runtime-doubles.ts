@@ -1,4 +1,7 @@
-import type { WorkflowStore } from '../src/core/runtime'
+import type {
+  WorkflowStore,
+  WorkspaceTaskCheckUpdate,
+} from '../src/core/runtime'
 import type {
   FinalReport,
   ImplementArtifact,
@@ -11,15 +14,34 @@ import type {
   WorkflowState,
 } from '../src/types'
 
+export interface PerTaskTaskContextSource {
+  kind: 'per-task'
+  value: Record<string, TaskContext>
+}
+
+export interface SingleTaskContextSource {
+  kind: 'single'
+  value: TaskContext
+}
+
 export type TaskContextSource =
-  | {
-      kind: 'per-task'
-      value: Record<string, TaskContext>
-    }
-  | {
-      kind: 'single'
-      value: TaskContext
-    }
+  | PerTaskTaskContextSource
+  | SingleTaskContextSource
+
+export interface CheckoutBranchOptions {
+  create?: boolean
+  startPoint?: string
+}
+
+export interface CommitTaskInput {
+  message: string
+}
+
+export interface AttemptArtifactKeyInput {
+  attempt: number
+  generation: number
+  taskId: string
+}
 
 export class FakeGit {
   private commitIndex = 0
@@ -38,10 +60,7 @@ export class FakeGit {
     this.headSubject = headSubject
   }
 
-  public async checkoutBranch(
-    name: string,
-    options?: { create?: boolean; startPoint?: string },
-  ) {
+  public async checkoutBranch(name: string, options?: CheckoutBranchOptions) {
     if (
       options?.create &&
       options.startPoint &&
@@ -56,7 +75,7 @@ export class FakeGit {
     this.currentBranches.push(name)
   }
 
-  public async commitTask(input: { message: string }) {
+  public async commitTask(input: CommitTaskInput) {
     const failure = this.commitFailures.shift() ?? null
     if (failure) {
       throw failure
@@ -132,11 +151,7 @@ export class InMemoryStore implements WorkflowStore {
     return this.graph
   }
 
-  public async loadImplementArtifact(key: {
-    attempt: number
-    generation: number
-    taskId: string
-  }) {
+  public async loadImplementArtifact(key: AttemptArtifactKeyInput) {
     return (
       this.implementArtifacts.find(
         (item) =>
@@ -146,11 +161,7 @@ export class InMemoryStore implements WorkflowStore {
       ) ?? null
     )
   }
-  public async loadReviewArtifact(key: {
-    attempt: number
-    generation: number
-    taskId: string
-  }) {
+  public async loadReviewArtifact(key: AttemptArtifactKeyInput) {
     return (
       this.reviewArtifacts.find(
         (item) =>
@@ -233,7 +244,7 @@ export class InMemoryStore implements WorkflowStore {
 }
 
 export class InMemoryWorkspace {
-  public readonly checkboxUpdates: { checked: boolean; taskId: string }[][] = []
+  public readonly checkboxUpdates: WorkspaceTaskCheckUpdate[][] = []
   public constructor(private readonly taskContext: TaskContextSource) {}
   public async isTaskChecked(taskId: string) {
     const latest = this.checkboxUpdates
@@ -253,9 +264,7 @@ export class InMemoryWorkspace {
     return context
   }
 
-  public async updateTaskChecks(
-    updates: { checked: boolean; taskId: string }[],
-  ) {
+  public async updateTaskChecks(updates: WorkspaceTaskCheckUpdate[]) {
     this.checkboxUpdates.push(updates)
   }
 }

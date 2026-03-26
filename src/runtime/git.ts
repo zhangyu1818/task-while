@@ -1,19 +1,23 @@
-import { execFile } from 'node:child_process'
 import path from 'node:path'
-import { promisify } from 'node:util'
+
+import { execa } from 'execa'
 
 import { filterPorcelainStatus } from '../utils/fs'
 
-import type { GitPort } from '../core/runtime'
-
-const execFileAsync = promisify(execFile)
+import type {
+  GitCheckoutBranchOptions,
+  GitCommitTaskInput,
+  GitCommitTaskResult,
+  GitPort,
+  GitPushBranchOptions,
+} from '../core/runtime'
 
 function normalizeRelativePath(value: string) {
   return value.split(path.sep).join('/')
 }
 
 async function runGit(cwd: string, args: string[]) {
-  const result = await execFileAsync('git', args, { cwd })
+  const result = await execa('git', args, { cwd })
   return result.stdout.trim()
 }
 
@@ -31,7 +35,7 @@ export class GitRuntime implements GitPort {
 
   public async checkoutBranch(
     name: string,
-    options?: { create?: boolean; startPoint?: string },
+    options?: GitCheckoutBranchOptions,
   ) {
     if (options?.create) {
       const args = ['checkout', '-b', name]
@@ -49,7 +53,9 @@ export class GitRuntime implements GitPort {
     await runGit(this.workspaceRoot, ['checkout', '-B', name, 'FETCH_HEAD'])
   }
 
-  public async commitTask(input: { message: string }) {
+  public async commitTask(
+    input: GitCommitTaskInput,
+  ): Promise<GitCommitTaskResult> {
     await runGit(this.workspaceRoot, ['add', '-A', '.'])
     await runGit(this.workspaceRoot, ['reset', '--', this.runtimeDirRelative])
     await runGit(this.workspaceRoot, [
@@ -110,13 +116,9 @@ export class GitRuntime implements GitPort {
 
   public async isAncestorOfHead(commitSha: string) {
     try {
-      await execFileAsync(
-        'git',
-        ['merge-base', '--is-ancestor', commitSha, 'HEAD'],
-        {
-          cwd: this.workspaceRoot,
-        },
-      )
+      await execa('git', ['merge-base', '--is-ancestor', commitSha, 'HEAD'], {
+        cwd: this.workspaceRoot,
+      })
       return true
     } catch {
       return false
@@ -127,7 +129,7 @@ export class GitRuntime implements GitPort {
     await runGit(this.workspaceRoot, ['pull', '--ff-only', 'origin', branch])
   }
 
-  public async pushBranch(name: string, options?: { setUpstream?: boolean }) {
+  public async pushBranch(name: string, options?: GitPushBranchOptions) {
     const args = ['push']
     if (options?.setUpstream) {
       args.push('-u')

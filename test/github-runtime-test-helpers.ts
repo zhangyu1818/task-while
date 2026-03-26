@@ -1,15 +1,44 @@
-export function createPullRequestConnectionPage(input: {
+export interface PullRequestPageInfoInput {
+  endCursor: null | string
+  hasNextPage: boolean
+}
+
+export interface CreatePullRequestConnectionPageInput {
   comments?: unknown[]
-  commentsPageInfo?: { endCursor: null | string; hasNextPage: boolean }
+  commentsPageInfo?: PullRequestPageInfoInput
   files?: unknown[]
-  filesPageInfo?: { endCursor: null | string; hasNextPage: boolean }
+  filesPageInfo?: PullRequestPageInfoInput
   reactions?: unknown[]
-  reactionsPageInfo?: { endCursor: null | string; hasNextPage: boolean }
+  reactionsPageInfo?: PullRequestPageInfoInput
   reviews?: unknown[]
-  reviewsPageInfo?: { endCursor: null | string; hasNextPage: boolean }
+  reviewsPageInfo?: PullRequestPageInfoInput
   reviewThreads?: unknown[]
-  reviewThreadsPageInfo?: { endCursor: null | string; hasNextPage: boolean }
-}) {
+  reviewThreadsPageInfo?: PullRequestPageInfoInput
+}
+
+export interface ThreadCommentInput {
+  author: ThreadCommentAuthorInput
+  body: string
+  createdAt: string
+  line: null | number
+  path: string
+  url: string
+}
+
+export interface ThreadCommentAuthorInput {
+  login: string
+}
+
+export interface CreateThreadCommentsPageInput {
+  comments: ThreadCommentInput[]
+  endCursor: null | string
+  hasNextPage: boolean
+  threadId: string
+}
+
+export function createPullRequestConnectionPage(
+  input: CreatePullRequestConnectionPageInput,
+) {
   return JSON.stringify({
     data: {
       repository: {
@@ -55,19 +84,7 @@ export function createPullRequestConnectionPage(input: {
   })
 }
 
-export function createThreadCommentsPage(input: {
-  comments: {
-    author: { login: string }
-    body: string
-    createdAt: string
-    line: null | number
-    path: string
-    url: string
-  }[]
-  endCursor: null | string
-  hasNextPage: boolean
-  threadId: string
-}) {
+export function createThreadCommentsPage(input: CreateThreadCommentsPageInput) {
   return JSON.stringify({
     data: {
       node: {

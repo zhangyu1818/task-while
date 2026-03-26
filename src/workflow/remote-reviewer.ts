@@ -9,20 +9,30 @@ import type {
   PullRequestReviewThread,
   PullRequestReviewThreadComment,
 } from '../core/runtime'
-import type { ReviewOutput } from '../types'
+import type { ReviewFinding, ReviewOutput } from '../types'
 
 export const CODEX_REVIEWER_ACTOR = 'chatgpt-codex-connector[bot]'
 
-type FeedbackSignal =
-  | (PullRequestDiscussionComment & {
-      kind: 'discussion'
-    })
-  | (PullRequestReviewSummary & {
-      kind: 'review-summary'
-    })
-  | (PullRequestReviewThreadComment & {
-      kind: 'thread'
-    })
+export interface DiscussionFeedbackSignal extends PullRequestDiscussionComment {
+  kind: 'discussion'
+}
+
+export interface ReviewSummaryFeedbackSignal extends PullRequestReviewSummary {
+  kind: 'review-summary'
+}
+
+export interface ThreadFeedbackSignal extends PullRequestReviewThreadComment {
+  kind: 'thread'
+}
+
+export type FeedbackSignal =
+  | DiscussionFeedbackSignal
+  | ReviewSummaryFeedbackSignal
+  | ThreadFeedbackSignal
+
+function isNonNull<T>(value: null | T): value is T {
+  return value !== null
+}
 
 function isAfterCheckpoint(
   timestamp: null | string,
@@ -95,7 +105,7 @@ function collectFeedbackSignals(
     }))
   const threads = input.pullRequest.reviewThreads
     .map((thread) => collectThreadFeedback(thread, input.checkpointStartedAt))
-    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .filter(isNonNull)
 
   return [...discussion, ...reviewSummaries, ...threads].sort((left, right) => {
     const leftTime =
@@ -154,7 +164,7 @@ function buildRejectedReview(
   input: PullRequestReviewInput,
   feedbackSignals: FeedbackSignal[],
 ): ReviewOutput {
-  const findings = feedbackSignals.map((signal) => {
+  const findings: ReviewFinding[] = feedbackSignals.map((signal) => {
     const path = 'path' in signal && signal.path ? signal.path : undefined
     const issue = signal.body.trim() || 'Remote reviewer requested changes'
     return {

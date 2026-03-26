@@ -1,6 +1,9 @@
 import { finalizeTaskCheckbox } from './finalize-task-checkbox'
 
-import type { RemoteReviewerProvider } from '../agents/types'
+import type {
+  PullRequestReviewResult,
+  RemoteReviewerProvider,
+} from '../agents/types'
 import type { OrchestratorRuntime, PullRequestRef } from '../core/runtime'
 import type {
   IntegratePhaseResult,
@@ -34,11 +37,13 @@ function createPullRequestBody(context: PullRequestReviewPhaseContext) {
   ].join('\n')
 }
 
-async function ensureTaskBranch(input: {
+interface EnsureTaskBranchInput {
   branchName: string
   restoreFromRemote: boolean
   runtime: OrchestratorRuntime
-}) {
+}
+
+async function ensureTaskBranch(input: EnsureTaskBranchInput) {
   const currentBranch = await input.runtime.git.getCurrentBranch()
   if (currentBranch === input.branchName) {
     return
@@ -57,12 +62,16 @@ async function ensureTaskBranch(input: {
   }
 }
 
-async function ensurePullRequest(input: {
+interface EnsurePullRequestInput {
   branchName: string
   branchNeedsPush: boolean
   context: PullRequestReviewPhaseContext
   existingPullRequest: null | PullRequestRef
-}): Promise<PullRequestRef> {
+}
+
+async function ensurePullRequest(
+  input: EnsurePullRequestInput,
+): Promise<PullRequestRef> {
   let pullRequest = input.existingPullRequest
 
   if (input.branchNeedsPush || !pullRequest) {
@@ -82,38 +91,48 @@ async function ensurePullRequest(input: {
   return pullRequest
 }
 
-async function waitForRemoteReview(input: {
+interface WaitForRemoteReviewInput {
   checkpointStartedAt: string
   context: PullRequestReviewPhaseContext
   pullRequest: PullRequestRef
   reviewer: RemoteReviewerProvider
-  sleep: (ms: number) => Promise<void>
-}): Promise<ReviewPhaseResult> {
-  for (;;) {
+  sleep: SleepFunction
+}
+
+type SleepFunction = (ms: number) => Promise<void>
+
+async function waitForRemoteReview(
+  input: WaitForRemoteReviewInput,
+): Promise<ReviewPhaseResult> {
+  const evaluateReview = async () => {
     const snapshot = await input.context.runtime.github.getPullRequestSnapshot({
       pullRequestNumber: input.pullRequest.number,
     })
-    const result = await input.reviewer.evaluatePullRequestReview({
+    return input.reviewer.evaluatePullRequestReview({
       checkpointStartedAt: input.checkpointStartedAt,
       pullRequest: snapshot,
       task: input.context.task,
     })
-    if (result.kind === 'pending') {
-      await input.sleep(DEFAULT_REVIEW_POLL_INTERVAL_MS)
-      continue
-    }
-    return result
   }
+
+  let result: PullRequestReviewResult = await evaluateReview()
+  while (result.kind === 'pending') {
+    await input.sleep(DEFAULT_REVIEW_POLL_INTERVAL_MS)
+    result = await evaluateReview()
+  }
+  return result
 }
 
 function toLocalCleanupWarning(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
-async function cleanupAfterMerge(input: {
+interface CleanupAfterMergeInput {
   branchName: string
   runtime: OrchestratorRuntime
-}) {
+}
+
+async function cleanupAfterMerge(input: CleanupAfterMergeInput) {
   const warnings: string[] = []
   let onBaseBranch = false
 
@@ -147,19 +166,25 @@ async function cleanupAfterMerge(input: {
   return warnings
 }
 
-function summarizeIntegrateResult(input: {
+interface SummarizeIntegrateResultInput {
   status: 'already integrated' | 'integrated'
   warnings: string[]
-}) {
+}
+
+function summarizeIntegrateResult(input: SummarizeIntegrateResultInput) {
   return input.warnings.length === 0
     ? input.status
     : `${input.status}; local cleanup warning: ${input.warnings.join('; ')}`
 }
 
-export function createPullRequestWorkflowPreset(input: {
+export interface CreatePullRequestWorkflowPresetInput {
   reviewer: RemoteReviewerProvider
-  sleep?: (ms: number) => Promise<void>
-}): PullRequestWorkflowPreset {
+  sleep?: SleepFunction
+}
+
+export function createPullRequestWorkflowPreset(
+  input: CreatePullRequestWorkflowPresetInput,
+): PullRequestWorkflowPreset {
   const sleep =
     input.sleep ??
     (async (ms: number) => {
@@ -176,49 +201,55 @@ export function createPullRequestWorkflowPreset(input: {
         await context.runtime.github.findOpenPullRequestByHeadBranch({
           headBranch: branchName,
         })
-      if (!openPullRequest) {
-        const mergedPullRequest =
-          await context.runtime.github.findMergedPullRequestByHeadBranch({
-            headBranch: branchName,
+      if (openPullRequest) {
+        await ensureTaskBranch({
+          branchName,
+          restoreFromRemote: true,
+          runtime: context.runtime,
+        })
+        const taskChecked = await context.runtime.workspace.isTaskChecked(
+          context.taskId,
+        )
+        if (!taskChecked) {
+          await finalizeTaskCheckbox({
+            commitMessage: context.commitMessage,
+            runtime: context.runtime,
+            taskId: context.taskId,
           })
-        if (!mergedPullRequest) {
-          throw new Error(
-            `Missing open or merged pull request for branch ${branchName}`,
-          )
         }
+        await context.runtime.git.pushBranch(branchName)
+        const mergeResult = await context.runtime.github.squashMergePullRequest(
+          {
+            pullRequestNumber: openPullRequest.number,
+            subject: context.commitMessage,
+          },
+        )
         const warnings = await cleanupAfterMerge({
           branchName,
           runtime: context.runtime,
         })
+
         return {
           kind: 'completed',
           result: {
-            commitSha: mergedPullRequest.mergeCommitSha,
+            commitSha: mergeResult.commitSha,
             summary: summarizeIntegrateResult({
-              status: 'already integrated',
+              status: 'integrated',
               warnings,
             }),
           },
         }
       }
 
-      await ensureTaskBranch({
-        branchName,
-        restoreFromRemote: true,
-        runtime: context.runtime,
-      })
-      if (!(await context.runtime.workspace.isTaskChecked(context.taskId))) {
-        await finalizeTaskCheckbox({
-          commitMessage: context.commitMessage,
-          runtime: context.runtime,
-          taskId: context.taskId,
+      const mergedPullRequest =
+        await context.runtime.github.findMergedPullRequestByHeadBranch({
+          headBranch: branchName,
         })
+      if (!mergedPullRequest) {
+        throw new Error(
+          `Missing open or merged pull request for branch ${branchName}`,
+        )
       }
-      await context.runtime.git.pushBranch(branchName)
-      const mergeResult = await context.runtime.github.squashMergePullRequest({
-        pullRequestNumber: openPullRequest.number,
-        subject: context.commitMessage,
-      })
       const warnings = await cleanupAfterMerge({
         branchName,
         runtime: context.runtime,
@@ -227,9 +258,9 @@ export function createPullRequestWorkflowPreset(input: {
       return {
         kind: 'completed',
         result: {
-          commitSha: mergeResult.commitSha,
+          commitSha: mergedPullRequest.mergeCommitSha,
           summary: summarizeIntegrateResult({
-            status: 'integrated',
+            status: 'already integrated',
             warnings,
           }),
         },
@@ -251,7 +282,8 @@ export function createPullRequestWorkflowPreset(input: {
         runtime: context.runtime,
       })
 
-      if ((await context.runtime.git.getHeadSubject()) !== checkpointMessage) {
+      const headSubject = await context.runtime.git.getHeadSubject()
+      if (headSubject !== checkpointMessage) {
         await context.runtime.git.commitTask({
           message: checkpointMessage,
         })

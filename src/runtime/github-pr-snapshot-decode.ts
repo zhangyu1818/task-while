@@ -7,10 +7,12 @@ import type {
 
 export interface ConnectionPage<T> {
   nodes: T[]
-  pageInfo: {
-    endCursor: null | string
-    hasNextPage: boolean
-  }
+  pageInfo: ConnectionPageInfo
+}
+
+export interface ConnectionPageInfo {
+  endCursor: null | string
+  hasNextPage: boolean
 }
 
 export interface PullRequestSnapshotPage {
@@ -23,10 +25,7 @@ export interface PullRequestSnapshotPage {
 
 export interface ReviewThreadPageNode {
   comments: PullRequestReviewThreadComment[]
-  commentsPageInfo: {
-    endCursor: null | string
-    hasNextPage: boolean
-  }
+  commentsPageInfo: ConnectionPageInfo
   id: string
   isOutdated: boolean
   isResolved: boolean
@@ -38,6 +37,13 @@ export interface RequestedSnapshotConnections {
   reactions: boolean
   reviews: boolean
   reviewThreads: boolean
+}
+
+export interface ParseRequestedConnectionInput<T> {
+  label: string
+  mapNode: (node: Record<string, unknown>) => T
+  requested: boolean
+  value: unknown
 }
 
 function asBoolean(value: unknown) {
@@ -71,6 +77,34 @@ function asRecord(value: unknown) {
 
 function asString(value: unknown) {
   return typeof value === 'string' ? value : ''
+}
+
+interface GraphQLReviewThreadCommentsNode {
+  comments?: Record<string, unknown>
+}
+
+interface GraphQLReviewThreadCommentsData {
+  node?: GraphQLReviewThreadCommentsNode
+}
+
+interface GraphQLReviewThreadCommentsPayload {
+  data?: GraphQLReviewThreadCommentsData
+}
+
+interface GraphQLRepositoryPullRequestPayload {
+  pullRequest?: Record<string, unknown>
+}
+
+interface GraphQLSnapshotRepository {
+  repository?: GraphQLRepositoryPullRequestPayload
+}
+
+interface GraphQLSnapshotPayload {
+  data?: GraphQLSnapshotRepository
+}
+
+interface LoginLike {
+  login?: unknown
 }
 
 function invalidGraphQLError(label: string) {
@@ -127,12 +161,9 @@ function parseConnection<T>(
   }
 }
 
-function parseRequestedConnection<T>(input: {
-  label: string
-  mapNode: (node: Record<string, unknown>) => T
-  requested: boolean
-  value: unknown
-}): ConnectionPage<T> | null {
+function parseRequestedConnection<T>(
+  input: ParseRequestedConnectionInput<T>,
+): ConnectionPage<T> | null {
   if (!input.requested) {
     return null
   }
@@ -142,13 +173,7 @@ function parseRequestedConnection<T>(input: {
 export function parseReviewThreadCommentsPage(
   raw: string,
 ): ConnectionPage<PullRequestReviewThreadComment> {
-  const payload = JSON.parse(raw) as {
-    data?: {
-      node?: {
-        comments?: Record<string, unknown>
-      }
-    }
-  }
+  const payload = JSON.parse(raw) as GraphQLReviewThreadCommentsPayload
   return parseConnection(
     payload.data?.node?.comments,
     'reviewThread.comments',
@@ -160,13 +185,7 @@ export function parseSnapshotPage(
   raw: string,
   requested: RequestedSnapshotConnections,
 ): PullRequestSnapshotPage {
-  const payload = JSON.parse(raw) as {
-    data?: {
-      repository?: {
-        pullRequest?: Record<string, unknown>
-      }
-    }
-  }
+  const payload = JSON.parse(raw) as GraphQLSnapshotPayload
   const repository = asRecord(payload.data?.repository)
   const record = asRecord(repository?.pullRequest)
   if (!record) {
@@ -215,8 +234,8 @@ function toDiscussionComment(
     createdAt: asString(item.created_at ?? item.createdAt),
     url: asString(item.html_url ?? item.url),
     userLogin: asString(
-      (item.user as null | { login?: unknown })?.login ??
-        (item.author as null | { login?: unknown })?.login,
+      (item.user as LoginLike | null)?.login ??
+        (item.author as LoginLike | null)?.login,
     ),
   }
 }
@@ -225,7 +244,7 @@ function toReaction(item: Record<string, unknown>): PullRequestReaction {
   return {
     content: toReactionContent(asString(item.content)),
     createdAt: asString(item.created_at ?? item.createdAt),
-    userLogin: asString((item.user as null | { login?: unknown })?.login),
+    userLogin: asString((item.user as LoginLike | null)?.login),
   }
 }
 
@@ -250,8 +269,8 @@ function toReviewSummary(
     submittedAt: asNullableString(item.submitted_at ?? item.submittedAt),
     url: asString(item.html_url ?? item.url),
     userLogin: asString(
-      (item.user as null | { login?: unknown })?.login ??
-        (item.author as null | { login?: unknown })?.login,
+      (item.user as LoginLike | null)?.login ??
+        (item.author as LoginLike | null)?.login,
     ),
   }
 }
@@ -265,7 +284,7 @@ function toReviewThreadComment(
     line: asNullableNumber(item.line),
     path: asString(item.path),
     url: asString(item.url),
-    userLogin: asString((item.author as null | { login?: unknown })?.login),
+    userLogin: asString((item.author as LoginLike | null)?.login),
   }
 }
 

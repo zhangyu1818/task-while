@@ -12,29 +12,24 @@ import {
   trackedFilesInHead,
 } from './command-test-helpers'
 
+import type { CodexAgentClientOptions } from '../src/agents/codex'
+import type { FinalReport, WorkflowState } from '../src/types'
+
 const providerState = vi.hoisted(() => ({
+  createdOptions: [] as CodexAgentClientOptions[],
   queue: [] as ScriptedWorkflowProvider[],
-  createdOptions: [] as {
-    onEvent?: (event: { item?: { type?: string }; type: string }) => void
-    workspaceRoot: string
-  }[],
 }))
 
 vi.mock('../src/agents/codex', () => {
   return {
-    createCodexProvider: vi.fn(
-      (options: {
-        onEvent?: (event: { item?: { type?: string }; type: string }) => void
-        workspaceRoot: string
-      }) => {
-        providerState.createdOptions.push(options)
-        const provider = providerState.queue.shift()
-        if (!provider) {
-          throw new Error('Missing scripted workflow provider')
-        }
-        return provider
-      },
-    ),
+    createCodexProvider: vi.fn((options: CodexAgentClientOptions) => {
+      providerState.createdOptions.push(options)
+      const provider = providerState.queue.shift()
+      if (!provider) {
+        throw new Error('Missing scripted workflow provider')
+      }
+      return provider
+    }),
   }
 })
 
@@ -82,20 +77,20 @@ test('runCommand creates one git commit per completed task and records commitSha
 
   const state = JSON.parse(
     await readFile(path.join(featureDir, '.while', 'state.json'), 'utf8'),
-  ) as {
-    tasks: Record<string, { commitSha?: string; status: string }>
-  }
+  ) as WorkflowState
   const report = JSON.parse(
     await readFile(path.join(featureDir, '.while', 'report.json'), 'utf8'),
-  ) as {
-    tasks: { commitSha?: string; id: string; status: string }[]
-  }
+  ) as FinalReport
   const headFiles = await trackedFilesInHead(root)
 
   expect(state.tasks.T001?.status).toBe('done')
-  expect(state.tasks.T001?.commitSha).toBeTruthy()
+  if (state.tasks.T001?.status === 'done') {
+    expect(state.tasks.T001.commitSha).toBeTruthy()
+  }
   expect(state.tasks.T002?.status).toBe('done')
-  expect(state.tasks.T002?.commitSha).toBeTruthy()
+  if (state.tasks.T002?.status === 'done') {
+    expect(state.tasks.T002.commitSha).toBeTruthy()
+  }
   expect(
     report.tasks.every(
       (task) => task.status === 'done' && typeof task.commitSha === 'string',
@@ -266,13 +261,13 @@ test('runCommand reverts the tasks.md checkbox and blocks when the task commit f
   const tasksMd = await readFile(path.join(featureDir, 'tasks.md'), 'utf8')
   const state = JSON.parse(
     await readFile(path.join(featureDir, '.while', 'state.json'), 'utf8'),
-  ) as {
-    tasks: Record<string, { reason?: string; status: string }>
-  }
+  ) as WorkflowState
 
   expect(tasksMd).toMatch(/- \[ \] T001/)
   expect(state.tasks.T001).toMatchObject({
     status: 'blocked',
   })
-  expect(state.tasks.T001?.reason).toMatch(/commit/i)
+  if (state.tasks.T001?.status === 'blocked') {
+    expect(state.tasks.T001.reason).toMatch(/commit/i)
+  }
 })

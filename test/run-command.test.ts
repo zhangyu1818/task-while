@@ -1,29 +1,41 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
+import type { CodexAgentClientOptions } from '../src/agents/codex'
 import type { ImplementerProvider, ReviewerProvider } from '../src/agents/types'
 import type { OrchestratorRuntime } from '../src/core/runtime'
 import type { TaskGraph, WorkspaceContext } from '../src/types'
-import type { WorkflowConfig } from '../src/workflow/config'
+import type {
+  WorkflowConfig,
+  WorkflowProvider,
+  WorkflowRoleConfig,
+} from '../src/workflow/config'
+
+interface MockCodexInstance {
+  options: CodexAgentClientOptions
+  provider: ImplementerProvider & ReviewerProvider
+}
+
+function createWorkflowRoleConfig(
+  provider: WorkflowProvider = 'codex',
+): WorkflowRoleConfig {
+  return {
+    provider,
+  }
+}
 
 const mockState = vi.hoisted(() => {
   return {
     callSequence: [] as string[],
+    codexInstances: [] as MockCodexInstance[],
     runWorkflowCalls: [] as unknown[],
     workflowConfigCalls: [] as string[],
     workflowConfigError: null as Error | null,
-    codexInstances: [] as {
-      options: {
-        onEvent?: (event: { item?: { type?: string }; type: string }) => void
-        workspaceRoot: string
-      }
-      provider: ImplementerProvider & ReviewerProvider
-    }[],
     config: {
       workflow: {
         mode: 'direct',
         roles: {
-          implementer: { provider: 'codex' },
-          reviewer: { provider: 'codex' },
+          implementer: createWorkflowRoleConfig(),
+          reviewer: createWorkflowRoleConfig(),
         },
       },
     } as WorkflowConfig,
@@ -56,48 +68,43 @@ vi.mock('../src/workflow/config', () => {
 
 vi.mock('../src/agents/codex', () => {
   return {
-    createCodexProvider: vi.fn(
-      (options: {
-        onEvent?: (event: { item?: { type?: string }; type: string }) => void
-        workspaceRoot: string
-      }) => {
-        const provider: ImplementerProvider & ReviewerProvider = {
-          name: 'codex',
-          async implement() {
-            return {
-              assumptions: [],
-              needsHumanAttention: false,
-              notes: [],
-              status: 'implemented' as const,
-              summary: 'unused',
-              taskId: 'T001',
-              unresolvedItems: [],
-            }
-          },
-          async review() {
-            return {
-              findings: [],
-              overallRisk: 'low' as const,
-              summary: 'unused',
-              taskId: 'T001',
-              verdict: 'pass' as const,
-              acceptanceChecks: [
-                {
-                  criterion: 'unused',
-                  note: 'unused',
-                  status: 'pass' as const,
-                },
-              ],
-            }
-          },
-        }
-        mockState.codexInstances.push({
-          options,
-          provider,
-        })
-        return provider
-      },
-    ),
+    createCodexProvider: vi.fn((options: CodexAgentClientOptions) => {
+      const provider: ImplementerProvider & ReviewerProvider = {
+        name: 'codex',
+        async implement() {
+          return {
+            assumptions: [],
+            needsHumanAttention: false,
+            notes: [],
+            status: 'implemented' as const,
+            summary: 'unused',
+            taskId: 'T001',
+            unresolvedItems: [],
+          }
+        },
+        async review() {
+          return {
+            findings: [],
+            overallRisk: 'low' as const,
+            summary: 'unused',
+            taskId: 'T001',
+            verdict: 'pass' as const,
+            acceptanceChecks: [
+              {
+                criterion: 'unused',
+                note: 'unused',
+                status: 'pass' as const,
+              },
+            ],
+          }
+        },
+      }
+      mockState.codexInstances.push({
+        options,
+        provider,
+      })
+      return provider
+    }),
   }
 })
 
@@ -112,7 +119,7 @@ vi.mock('../src/core/task-normalizer', () => {
 
 vi.mock('../src/runtime/fs-runtime', () => {
   return {
-    createFsRuntime: vi.fn(() => {
+    createOrchestratorRuntime: vi.fn(() => {
       mockState.callSequence.push('runtime')
       return mockState.runtime
     }),
@@ -163,8 +170,8 @@ beforeEach(() => {
     workflow: {
       mode: 'direct',
       roles: {
-        implementer: { provider: 'codex' },
-        reviewer: { provider: 'codex' },
+        implementer: createWorkflowRoleConfig(),
+        reviewer: createWorkflowRoleConfig(),
       },
     },
   }
@@ -202,6 +209,7 @@ test('runCommand resolves default Codex workflow and forwards untilTaskId', asyn
 test('runCommand enables Codex progress callback on workflow providers when verbose is true', async () => {
   const context = createContext()
   const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+  stderr.mockClear()
 
   await runCommand(context, {
     verbose: true,
@@ -212,10 +220,36 @@ test('runCommand enables Codex progress callback on workflow providers when verb
   mockState.codexInstances[0]?.options.onEvent?.({
     type: 'item.completed',
     item: {
+      text: '{"verdict":"pass","acceptanceChecks":[{"status":"fail"}]}',
       type: 'agent_message',
     },
   })
-  expect(stderr).toHaveBeenCalledWith('[codex] item.completed agent_message\n')
+  expect(stderr).toHaveBeenNthCalledWith(
+    1,
+    '[codex] item.completed agent_message\n',
+  )
+  expect(stderr).toHaveBeenNthCalledWith(
+    2,
+    '[codex] message {"verdict":"pass","acceptanceChecks":[{"status":"fail"}]}\n',
+  )
+})
+
+test('runCommand prints codex error details when verbose is true', async () => {
+  const context = createContext()
+  const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
+  stderr.mockClear()
+
+  await runCommand(context, {
+    verbose: true,
+  })
+
+  mockState.codexInstances[0]?.options.onEvent?.({
+    message: 'bad payload',
+    type: 'error',
+  })
+
+  expect(stderr).toHaveBeenNthCalledWith(1, '[codex] error\n')
+  expect(stderr).toHaveBeenNthCalledWith(2, '[codex] error bad payload\n')
 })
 
 test('runCommand loads workflow config before creating runtime', async () => {

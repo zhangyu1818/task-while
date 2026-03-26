@@ -39,18 +39,38 @@ export interface WorkflowStore {
 export interface WorkspacePort {
   isTaskChecked: (taskId: string) => Promise<boolean>
   loadTaskContext: (task: TaskDefinition) => Promise<TaskContext>
-  updateTaskChecks: (
-    updates: { checked: boolean; taskId: string }[],
-  ) => Promise<void>
+  updateTaskChecks: (updates: WorkspaceTaskCheckUpdate[]) => Promise<void>
+}
+
+export interface WorkspaceTaskCheckUpdate {
+  checked: boolean
+  taskId: string
+}
+
+export interface GitCheckoutBranchOptions {
+  create?: boolean
+  startPoint?: string
+}
+
+export interface GitCommitTaskInput {
+  message: string
+}
+
+export interface GitCommitTaskResult {
+  commitSha: string
+}
+
+export interface GitPushBranchOptions {
+  setUpstream?: boolean
 }
 
 export interface GitPort {
   checkoutBranch: (
     name: string,
-    options?: { create?: boolean; startPoint?: string },
+    options?: GitCheckoutBranchOptions,
   ) => Promise<void>
   checkoutRemoteBranch: (name: string) => Promise<void>
-  commitTask: (input: { message: string }) => Promise<{ commitSha: string }>
+  commitTask: (input: GitCommitTaskInput) => Promise<GitCommitTaskResult>
   deleteLocalBranch: (name: string) => Promise<void>
   getChangedFilesSinceHead: () => Promise<string[]>
   getCurrentBranch: () => Promise<string>
@@ -60,10 +80,7 @@ export interface GitPort {
   getParentCommit: (commitSha: string) => Promise<string>
   isAncestorOfHead: (commitSha: string) => Promise<boolean>
   pullFastForward: (branch: string) => Promise<void>
-  pushBranch: (
-    name: string,
-    options?: { setUpstream?: boolean },
-  ) => Promise<void>
+  pushBranch: (name: string, options?: GitPushBranchOptions) => Promise<void>
   requireCleanWorktree: () => Promise<void>
   resetHard: (commitSha: string) => Promise<void>
 }
@@ -126,25 +143,43 @@ export interface PullRequestSnapshot {
 }
 
 export interface GitHubPort {
-  createPullRequest: (input: {
-    baseBranch: string
-    body: string
-    headBranch: string
-    title: string
-  }) => Promise<PullRequestRef>
-  findMergedPullRequestByHeadBranch: (input: {
-    headBranch: string
-  }) => Promise<MergedPullRequestRef | null>
-  findOpenPullRequestByHeadBranch: (input: {
-    headBranch: string
-  }) => Promise<null | PullRequestRef>
-  getPullRequestSnapshot: (input: {
-    pullRequestNumber: number
-  }) => Promise<PullRequestSnapshot>
-  squashMergePullRequest: (input: {
-    pullRequestNumber: number
-    subject: string
-  }) => Promise<{ commitSha: string }>
+  createPullRequest: (input: CreatePullRequestInput) => Promise<PullRequestRef>
+  findMergedPullRequestByHeadBranch: (
+    input: FindMergedPullRequestByHeadBranchInput,
+  ) => Promise<MergedPullRequestRef | null>
+  findOpenPullRequestByHeadBranch: (
+    input: FindOpenPullRequestByHeadBranchInput,
+  ) => Promise<null | PullRequestRef>
+  getPullRequestSnapshot: (
+    input: GetPullRequestSnapshotInput,
+  ) => Promise<PullRequestSnapshot>
+  squashMergePullRequest: (
+    input: SquashMergePullRequestInput,
+  ) => Promise<GitCommitTaskResult>
+}
+
+export interface CreatePullRequestInput {
+  baseBranch: string
+  body: string
+  headBranch: string
+  title: string
+}
+
+export interface FindMergedPullRequestByHeadBranchInput {
+  headBranch: string
+}
+
+export interface FindOpenPullRequestByHeadBranchInput {
+  headBranch: string
+}
+
+export interface GetPullRequestSnapshotInput {
+  pullRequestNumber: number
+}
+
+export interface SquashMergePullRequestInput {
+  pullRequestNumber: number
+  subject: string
 }
 
 export interface OrchestratorRuntime {

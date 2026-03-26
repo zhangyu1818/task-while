@@ -52,6 +52,18 @@ test('buildReviewerPrompt keeps review context path-only', async () => {
     'Evaluate task acceptance, spec/plan alignment, actual changed files, and overall risk.',
   )
   expect(prompt).toContain(
+    'Only return verdict "pass" when every acceptance criterion is satisfied.',
+  )
+  expect(prompt).toContain(
+    'If verdict is "pass", findings must be an empty array and every acceptanceChecks entry must have status "pass".',
+  )
+  expect(prompt).toContain(
+    'If any acceptance criterion is unmet or unclear, verdict must not be "pass".',
+  )
+  expect(prompt).toContain(
+    'acceptanceChecks must cover every acceptance criterion for the current task.',
+  )
+  expect(prompt).toContain(
     'Do not expand the review to unrelated files or repository-wide history.',
   )
   expect(prompt).not.toMatch(/export const value/)

@@ -1,5 +1,7 @@
-import { appendFile, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+
+import * as fsExtra from 'fs-extra'
 
 import {
   validateFinalReport,
@@ -10,12 +12,16 @@ import {
   validateWorkflowEvent,
   validateWorkflowState,
 } from '../schema/index'
-import { ensureDir, readTextIfExists, writeJsonAtomic } from '../utils/fs'
+import { writeJsonAtomic } from '../utils/fs'
 import { GitRuntime } from './git'
 import { GitHubRuntime } from './github'
 import { createRuntimePaths } from './path-layout'
 
-import type { OrchestratorRuntime } from '../core/runtime'
+import type {
+  AttemptArtifactKey,
+  OrchestratorRuntime,
+  WorkspaceTaskCheckUpdate,
+} from '../core/runtime'
 import type { TaskDefinition } from '../types'
 
 function createArtifactDir(
@@ -47,9 +53,37 @@ function isTaskChecked(tasksMd: string, taskId: string) {
   return pattern.test(tasksMd)
 }
 
+async function readTextFileIfExists(filePath: string) {
+  const exists = await fsExtra.pathExists(filePath)
+  if (!exists) {
+    return null
+  }
+  const raw = await readFile(filePath, 'utf8')
+  return raw || null
+}
+
+async function readRequiredTextFile(filePath: string) {
+  const raw = await readTextFileIfExists(filePath)
+  if (raw === null) {
+    throw new Error(`Missing required feature file: ${filePath}`)
+  }
+  return raw
+}
+
+async function readValidatedJsonFileIfExists<T>(
+  filePath: string,
+  validate: (value: unknown) => T,
+): Promise<null | T> {
+  const raw = await readTextFileIfExists(filePath)
+  if (!raw) {
+    return null
+  }
+  return validate(JSON.parse(raw))
+}
+
 async function updateTaskCheckboxes(
   tasksPath: string,
-  updates: { checked: boolean; taskId: string }[],
+  updates: WorkspaceTaskCheckUpdate[],
 ) {
   const content = await readFile(tasksPath, 'utf8')
   const updated = updates.reduce((current, update) => {
@@ -65,10 +99,14 @@ async function updateTaskCheckboxes(
   await writeFile(tasksPath, updated)
 }
 
-export function createFsRuntime(input: {
+export interface CreateOrchestratorRuntimeInput {
   featureDir: string
   workspaceRoot: string
-}): OrchestratorRuntime {
+}
+
+export function createOrchestratorRuntime(
+  input: CreateOrchestratorRuntimeInput,
+): OrchestratorRuntime {
   const tasksPath = path.join(input.featureDir, 'tasks.md')
   const runtimePaths = createRuntimePaths(input.featureDir)
 
@@ -78,69 +116,56 @@ export function createFsRuntime(input: {
     store: {
       async appendEvent(event) {
         const value = validateWorkflowEvent(event)
-        await ensureDir(path.dirname(runtimePaths.events))
+        await fsExtra.ensureDir(path.dirname(runtimePaths.events))
         await appendFile(runtimePaths.events, `${JSON.stringify(value)}\n`)
       },
       async loadGraph() {
-        const raw = await readTextIfExists(runtimePaths.graph)
-        if (!raw) {
-          return null
-        }
-        return validateTaskGraph(JSON.parse(raw))
-      },
-      async loadImplementArtifact(key) {
-        const raw = await readTextIfExists(
-          path.join(
-            createArtifactDir(
-              input.featureDir,
-              key.taskId,
-              key.generation,
-              key.attempt,
-            ),
-            'implement.json',
-          ),
+        return readValidatedJsonFileIfExists(
+          runtimePaths.graph,
+          validateTaskGraph,
         )
-        if (!raw) {
-          return null
-        }
-        return validateImplementArtifact(JSON.parse(raw))
       },
-      async loadReviewArtifact(key) {
-        const raw = await readTextIfExists(
-          path.join(
-            createArtifactDir(
-              input.featureDir,
-              key.taskId,
-              key.generation,
-              key.attempt,
-            ),
-            'review.json',
+      async loadImplementArtifact(key: AttemptArtifactKey) {
+        const filePath = path.join(
+          createArtifactDir(
+            input.featureDir,
+            key.taskId,
+            key.generation,
+            key.attempt,
           ),
+          'implement.json',
         )
-        if (!raw) {
-          return null
-        }
-        return validateReviewArtifact(JSON.parse(raw))
+        return readValidatedJsonFileIfExists(
+          filePath,
+          validateImplementArtifact,
+        )
+      },
+      async loadReviewArtifact(key: AttemptArtifactKey) {
+        const filePath = path.join(
+          createArtifactDir(
+            input.featureDir,
+            key.taskId,
+            key.generation,
+            key.attempt,
+          ),
+          'review.json',
+        )
+        return readValidatedJsonFileIfExists(filePath, validateReviewArtifact)
       },
       async loadState() {
-        const raw = await readTextIfExists(runtimePaths.state)
-        if (!raw) {
-          return null
-        }
-        return validateWorkflowState(JSON.parse(raw))
+        return readValidatedJsonFileIfExists(
+          runtimePaths.state,
+          validateWorkflowState,
+        )
       },
       async readReport() {
-        const raw = await readTextIfExists(runtimePaths.report)
-        if (!raw) {
-          return null
-        }
-        return validateFinalReport(JSON.parse(raw))
+        return readValidatedJsonFileIfExists(
+          runtimePaths.report,
+          validateFinalReport,
+        )
       },
       async reset() {
-        await rm(runtimePaths.runtimeDir, {
-          force: true,
-          recursive: true,
-        })
+        await fsExtra.remove(runtimePaths.runtimeDir)
       },
       async saveGraph(graph) {
         await writeJsonAtomic(runtimePaths.graph, validateTaskGraph(graph))
@@ -193,14 +218,16 @@ export function createFsRuntime(input: {
     },
     workspace: {
       async isTaskChecked(taskId) {
-        const tasksMd = await readTextIfExists(tasksPath)
-        return isTaskChecked(tasksMd, taskId)
+        const tasksMd = await readTextFileIfExists(tasksPath)
+        return isTaskChecked(tasksMd ?? '', taskId)
       },
       async loadTaskContext(task: TaskDefinition) {
+        const specPath = path.join(input.featureDir, 'spec.md')
+        const planPath = path.join(input.featureDir, 'plan.md')
         const [spec, plan, tasksMd] = await Promise.all([
-          readTextIfExists(path.join(input.featureDir, 'spec.md')),
-          readTextIfExists(path.join(input.featureDir, 'plan.md')),
-          readTextIfExists(tasksPath),
+          readRequiredTextFile(specPath),
+          readRequiredTextFile(planPath),
+          readRequiredTextFile(tasksPath),
         ])
         return {
           plan,
