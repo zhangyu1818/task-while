@@ -1,6 +1,10 @@
 import { createDirectWorkflowPreset } from '../src/workflow/direct-preset'
 import { FakeGitHub } from './workflow-github-double'
-import { FakeGit, InMemoryStore, InMemoryWorkspace } from './workflow-runtime-doubles'
+import {
+  FakeGit,
+  InMemoryStore,
+  InMemoryWorkspace,
+} from './workflow-runtime-doubles'
 
 import type {
   ImplementAgentInput,

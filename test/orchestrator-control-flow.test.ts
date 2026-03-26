@@ -42,7 +42,9 @@ test('runWorkflow records review execution failures and blocks when max attempts
     reason: 'review crashed',
     status: 'blocked',
   })
-  expect(store.events.some((event) => event.type === 'review_failed')).toBe(true)
+  expect(store.events.some((event) => event.type === 'review_failed')).toBe(
+    true,
+  )
   expect(store.reviewArtifacts).toHaveLength(0)
 })
 

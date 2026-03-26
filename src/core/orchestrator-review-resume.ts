@@ -181,10 +181,7 @@ export async function resumePullRequestReview(input: {
     type: 'review_completed',
   })
 
-  if (
-    reviewPhaseKind === 'approved' &&
-    shouldPassZeroGate({ review })
-  ) {
+  if (reviewPhaseKind === 'approved' && shouldPassZeroGate({ review })) {
     let nextState = recordReviewApproved(input.state, task.id, review)
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,

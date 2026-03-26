@@ -81,14 +81,30 @@ test('engine returns rework then blocked when review execution itself fails repe
   const graph = createGraph()
   const initial = createInitialWorkflowState(graph)
 
-  const attemptOne = recordImplementSuccess(startAttempt(graph, initial, 'T001'), 'T001')
-  const rework = recordReviewFailure(graph, attemptOne, 'T001', 'review crashed')
+  const attemptOne = recordImplementSuccess(
+    startAttempt(graph, initial, 'T001'),
+    'T001',
+  )
+  const rework = recordReviewFailure(
+    graph,
+    attemptOne,
+    'T001',
+    'review crashed',
+  )
   expect(rework.tasks.T001).toMatchObject({
     status: 'rework',
   })
 
-  const attemptTwo = recordImplementSuccess(startAttempt(graph, rework, 'T001'), 'T001')
-  const blocked = recordReviewFailure(graph, attemptTwo, 'T001', 'review crashed again')
+  const attemptTwo = recordImplementSuccess(
+    startAttempt(graph, rework, 'T001'),
+    'T001',
+  )
+  const blocked = recordReviewFailure(
+    graph,
+    attemptTwo,
+    'T001',
+    'review crashed again',
+  )
   expect(blocked.tasks.T001).toMatchObject({
     reason: 'review crashed again',
     status: 'blocked',
@@ -98,7 +114,10 @@ test('engine returns rework then blocked when review execution itself fails repe
 test('engine maps reviewer blocked and replan verdicts to terminal workflow states', () => {
   const graph = createGraph()
   const initial = createInitialWorkflowState(graph)
-  const reviewing = recordImplementSuccess(startAttempt(graph, initial, 'T001'), 'T001')
+  const reviewing = recordImplementSuccess(
+    startAttempt(graph, initial, 'T001'),
+    'T001',
+  )
 
   const blocked = recordReviewResult(graph, reviewing, 'T001', {
     review: {
@@ -113,7 +132,10 @@ test('engine maps reviewer blocked and replan verdicts to terminal workflow stat
     status: 'blocked',
   })
 
-  const reviewingAgain = recordImplementSuccess(startAttempt(graph, initial, 'T001'), 'T001')
+  const reviewingAgain = recordImplementSuccess(
+    startAttempt(graph, initial, 'T001'),
+    'T001',
+  )
   const replanned = recordReviewResult(graph, reviewingAgain, 'T001', {
     review: {
       ...createPassingReview('T001', 'buildGreeting works'),
@@ -131,7 +153,10 @@ test('engine maps reviewer blocked and replan verdicts to terminal workflow stat
 test('engine records review execution failures as rework before max attempts', () => {
   const graph = createGraph()
   const initial = createInitialWorkflowState(graph)
-  const reviewing = recordImplementSuccess(startAttempt(graph, initial, 'T001'), 'T001')
+  const reviewing = recordImplementSuccess(
+    startAttempt(graph, initial, 'T001'),
+    'T001',
+  )
 
   const failed = recordReviewFailure(graph, reviewing, 'T001', 'review crashed')
   const taskState = failed.tasks.T001!

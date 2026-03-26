@@ -157,10 +157,7 @@ export async function executeTaskAttempt(input: {
     type: 'review_completed',
   })
 
-  if (
-    reviewPhaseKind === 'approved' &&
-    shouldPassZeroGate({ review })
-  ) {
+  if (reviewPhaseKind === 'approved' && shouldPassZeroGate({ review })) {
     state = recordReviewApproved(state, input.task.id, review)
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,

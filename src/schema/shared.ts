@@ -19,11 +19,7 @@ export const taskStatusValues = [
   'blocked',
   'replan',
 ] as const
-export const runningStageValues = [
-  'implement',
-  'review',
-  'integrate',
-] as const
+export const runningStageValues = ['implement', 'review', 'integrate'] as const
 export const reviewVerdictValues = [
   'blocked',
   'pass',
