@@ -10,8 +10,21 @@ import {
   taskGraphSchema,
   workflowEventSchema,
   workflowStateSchema,
+  type acceptanceCheckSchema,
+  type blockedTaskStateSchema,
+  type doneTaskStateSchema,
+  type finalReportTaskSchema,
+  type pendingTaskStateSchema,
+  type replanTaskStateSchema,
+  type reviewFindingSchema,
+  type reworkTaskStateSchema,
+  type runningTaskStateSchema,
+  type taskDefinitionSchema,
+  type taskStateSchema,
 } from './model'
 import { parseWithSchema } from './shared'
+
+import type { z } from 'zod'
 
 export * from './model'
 export * from './shared'
@@ -86,40 +99,29 @@ export function validateFinalReport(value: unknown) {
   return parseWithSchema(finalReportSchema, value)
 }
 
-export type AcceptanceCheck =
-  (typeof import('./model').acceptanceCheckSchema)['_output']
-export type BlockedTaskState =
-  (typeof import('./model').blockedTaskStateSchema)['_output']
-export type DoneTaskState =
-  (typeof import('./model').doneTaskStateSchema)['_output']
-export type FinalReport = (typeof finalReportSchema)['_output']
-export type FinalReportTask =
-  (typeof import('./model').finalReportTaskSchema)['_output']
-export type IntegrateArtifact = (typeof integrateArtifactSchema)['_output']
-export type ImplementArtifact = (typeof implementArtifactSchema)['_output']
-export type ImplementOutput = (typeof implementOutputSchemaInternal)['_output']
-export type PendingTaskState =
-  (typeof import('./model').pendingTaskStateSchema)['_output']
-export type ReviewArtifact = (typeof reviewArtifactSchema)['_output']
-export type ReviewFinding =
-  (typeof import('./model').reviewFindingSchema)['_output']
-export type ReviewOutput = (typeof reviewOutputSchemaInternal)['_output']
-export type ReviewVerdict =
-  (typeof reviewOutputSchemaInternal)['_output']['verdict']
-export type ReplanTaskState =
-  (typeof import('./model').replanTaskStateSchema)['_output']
-export type ReworkTaskState =
-  (typeof import('./model').reworkTaskStateSchema)['_output']
-export type RunningStage =
-  (typeof import('./model').runningTaskStateSchema)['_output']['stage']
-export type RunningTaskState =
-  (typeof import('./model').runningTaskStateSchema)['_output']
-export type TaskDefinition =
-  (typeof import('./model').taskDefinitionSchema)['_output']
-export type TaskGraph = (typeof taskGraphSchema)['_output']
-export type TaskState = (typeof import('./model').taskStateSchema)['_output']
-export type TaskStatus =
-  (typeof import('./model').taskStateSchema)['_output']['status']
-export type WorkflowEvent = (typeof workflowEventSchema)['_output']
-export type WorkflowEventType = (typeof workflowEventSchema)['_output']['type']
-export type WorkflowState = (typeof workflowStateSchema)['_output']
+export type AcceptanceCheck = z.infer<typeof acceptanceCheckSchema>
+export type BlockedTaskState = z.infer<typeof blockedTaskStateSchema>
+export type DoneTaskState = z.infer<typeof doneTaskStateSchema>
+export type FinalReport = z.infer<typeof finalReportSchema>
+export type FinalReportTask = z.infer<typeof finalReportTaskSchema>
+export type IntegrateArtifact = z.infer<typeof integrateArtifactSchema>
+export type ImplementArtifact = z.infer<typeof implementArtifactSchema>
+export type ImplementOutput = z.infer<typeof implementOutputSchemaInternal>
+export type PendingTaskState = z.infer<typeof pendingTaskStateSchema>
+export type ReviewArtifact = z.infer<typeof reviewArtifactSchema>
+export type ReviewFinding = z.infer<typeof reviewFindingSchema>
+export type ReviewOutput = z.infer<typeof reviewOutputSchemaInternal>
+export type ReviewVerdict = z.infer<
+  typeof reviewOutputSchemaInternal
+>['verdict']
+export type ReplanTaskState = z.infer<typeof replanTaskStateSchema>
+export type ReworkTaskState = z.infer<typeof reworkTaskStateSchema>
+export type RunningStage = z.infer<typeof runningTaskStateSchema>['stage']
+export type RunningTaskState = z.infer<typeof runningTaskStateSchema>
+export type TaskDefinition = z.infer<typeof taskDefinitionSchema>
+export type TaskGraph = z.infer<typeof taskGraphSchema>
+export type TaskState = z.infer<typeof taskStateSchema>
+export type TaskStatus = z.infer<typeof taskStateSchema>['status']
+export type WorkflowEvent = z.infer<typeof workflowEventSchema>
+export type WorkflowEventType = z.infer<typeof workflowEventSchema>['type']
+export type WorkflowState = z.infer<typeof workflowStateSchema>

@@ -1,22 +1,19 @@
-import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
 
+import { execa } from 'execa'
 import { expect, test } from 'vitest'
 
-import { createFsRuntime } from '../src/runtime/fs-runtime'
-
-const execFileAsync = promisify(execFile)
+import { createOrchestratorRuntime } from '../src/runtime/fs-runtime'
 
 async function git(root: string, args: string[]) {
-  const result = await execFileAsync('git', args, { cwd: root })
+  const result = await execa('git', args, { cwd: root })
   return result.stdout.trim()
 }
 
 async function createWorkspace() {
-  const root = await mkdtemp(path.join(tmpdir(), 'while-fs-runtime-'))
+  const root = await mkdtemp(path.join(tmpdir(), 'while-orchestrator-runtime-'))
   const featureDir = path.join(root, 'specs', '001-demo')
   await mkdir(featureDir, { recursive: true })
   await mkdir(path.join(root, 'src'), { recursive: true })
@@ -48,10 +45,10 @@ async function createWorkspace() {
 async function createRemoteBackedWorkspace() {
   const remoteRoot = await mkdtemp(path.join(tmpdir(), 'while-fs-remote-'))
   const remote = path.join(remoteRoot, 'origin.git')
-  await execFileAsync('git', ['init', '--bare', remote])
+  await execa('git', ['init', '--bare', remote])
 
   const root = await mkdtemp(path.join(tmpdir(), 'while-fs-clone-'))
-  await execFileAsync('git', ['clone', remote, root])
+  await execa('git', ['clone', remote, root])
 
   const featureDir = path.join(root, 'specs', '001-demo')
   await mkdir(featureDir, { recursive: true })
@@ -89,9 +86,9 @@ async function createRemoteBackedWorkspace() {
   return { featureDir, remote, root }
 }
 
-test('FsRuntime returns null when persisted graph, state and report are absent', async () => {
+test('OrchestratorRuntime returns null when persisted graph, state and report are absent', async () => {
   const { featureDir, root } = await createWorkspace()
-  const runtime = createFsRuntime({
+  const runtime = createOrchestratorRuntime({
     featureDir,
     workspaceRoot: root,
   })
@@ -101,7 +98,7 @@ test('FsRuntime returns null when persisted graph, state and report are absent',
   await expect(runtime.store.readReport()).resolves.toBeNull()
 })
 
-test('FsRuntime clean-worktree check ignores runtime files under .while', async () => {
+test('OrchestratorRuntime clean-worktree check ignores runtime files under .while', async () => {
   const { featureDir, root } = await createWorkspace()
   await git(root, ['init'])
   await git(root, ['config', 'user.name', 'While Test'])
@@ -109,7 +106,7 @@ test('FsRuntime clean-worktree check ignores runtime files under .while', async 
   await git(root, ['branch', '-M', 'main'])
   await git(root, ['add', '.'])
   await git(root, ['commit', '-m', 'Initial commit'])
-  const runtime = createFsRuntime({
+  const runtime = createOrchestratorRuntime({
     featureDir,
     workspaceRoot: root,
   })
@@ -123,7 +120,7 @@ test('FsRuntime clean-worktree check ignores runtime files under .while', async 
   await expect(runtime.git.requireCleanWorktree()).resolves.toBeUndefined()
 })
 
-test('FsRuntime exposes git helpers, requires a fully clean worktree, and keeps .while out of task commits', async () => {
+test('OrchestratorRuntime exposes git helpers, requires a fully clean worktree, and keeps .while out of task commits', async () => {
   const { featureDir, root } = await createWorkspace()
   await git(root, ['init'])
   await git(root, ['config', 'user.name', 'While Test'])
@@ -132,7 +129,7 @@ test('FsRuntime exposes git helpers, requires a fully clean worktree, and keeps 
   await writeFile(path.join(root, '.gitignore'), '.while\n')
   await git(root, ['add', '.'])
   await git(root, ['commit', '-m', 'Initial commit'])
-  const runtime = createFsRuntime({
+  const runtime = createOrchestratorRuntime({
     featureDir,
     workspaceRoot: root,
   })
@@ -182,9 +179,9 @@ test('FsRuntime exposes git helpers, requires a fully clean worktree, and keeps 
   ).rejects.toThrow()
 })
 
-test('FsRuntime loads task context, marks missing code, updates checkboxes and appends events', async () => {
+test('OrchestratorRuntime loads task context, marks missing code, updates checkboxes and appends events', async () => {
   const { featureDir, root } = await createWorkspace()
-  const runtime = createFsRuntime({
+  const runtime = createOrchestratorRuntime({
     featureDir,
     workspaceRoot: root,
   })
@@ -221,9 +218,9 @@ test('FsRuntime loads task context, marks missing code, updates checkboxes and a
   expect(events).toContain('"type":"attempt_started"')
 })
 
-test('FsRuntime can restore a task branch from origin when the local branch is missing', async () => {
+test('OrchestratorRuntime can restore a task branch from origin when the local branch is missing', async () => {
   const { featureDir, root } = await createRemoteBackedWorkspace()
-  const runtime = createFsRuntime({
+  const runtime = createOrchestratorRuntime({
     featureDir,
     workspaceRoot: root,
   })

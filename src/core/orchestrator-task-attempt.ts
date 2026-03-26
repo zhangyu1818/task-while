@@ -20,22 +20,45 @@ import {
 import type {
   FinalReport,
   ImplementArtifact,
+  ImplementOutput,
   IntegrateArtifact,
   ReviewArtifact,
+  ReviewFinding,
+  TaskContext,
   TaskDefinition,
   TaskGraph,
   WorkflowState,
 } from '../types'
-import type { WorkflowRuntime } from '../workflow/preset'
+import type { ReviewPhaseResult, WorkflowRuntime } from '../workflow/preset'
 import type { OrchestratorRuntime } from './runtime'
 
-export async function executeTaskAttempt(input: {
+export interface ExecuteTaskAttemptInput {
   graph: TaskGraph
   runtime: OrchestratorRuntime
   state: WorkflowState
   task: TaskDefinition
   workflow: WorkflowRuntime
-}): Promise<{ report: FinalReport; state: WorkflowState }> {
+}
+
+export interface ExecuteTaskAttemptResult {
+  report: FinalReport
+  state: WorkflowState
+}
+
+interface TaskAttemptReviewInput {
+  attempt: number
+  commitMessage: string
+  generation: number
+  implement: ImplementOutput
+  lastFindings: ReviewFinding[]
+  runtime: OrchestratorRuntime
+  task: TaskDefinition
+  taskContext: TaskContext
+}
+
+export async function executeTaskAttempt(
+  input: ExecuteTaskAttemptInput,
+): Promise<ExecuteTaskAttemptResult> {
   let state = startAttempt(input.graph, input.state, input.task.id)
   await appendEvent(input.runtime, {
     attempt: state.tasks[input.task.id]!.attempt,
@@ -107,7 +130,7 @@ export async function executeTaskAttempt(input: {
   let review
   let reviewPhaseKind: 'approved' | 'rejected'
   try {
-    const reviewInput = {
+    const reviewInput: TaskAttemptReviewInput = {
       attempt: taskState.attempt,
       commitMessage,
       generation: taskState.generation,
@@ -117,14 +140,17 @@ export async function executeTaskAttempt(input: {
       task: input.task,
       taskContext,
     }
-    const reviewPhase =
-      input.workflow.preset.mode === 'direct'
-        ? await input.workflow.preset.review({
-            ...reviewInput,
-            actualChangedFiles:
-              await input.runtime.git.getChangedFilesSinceHead(),
-          })
-        : await input.workflow.preset.review(reviewInput)
+    let reviewPhase: ReviewPhaseResult
+    if (input.workflow.preset.mode === 'direct') {
+      const actualChangedFiles =
+        await input.runtime.git.getChangedFilesSinceHead()
+      reviewPhase = await input.workflow.preset.review({
+        ...reviewInput,
+        actualChangedFiles,
+      })
+    } else {
+      reviewPhase = await input.workflow.preset.review(reviewInput)
+    }
     reviewPhaseKind = reviewPhase.kind
     review = reviewPhase.review
     if (review.taskId !== input.task.id) {

@@ -4,10 +4,10 @@ import path from 'node:path'
 
 import { expect, test } from 'vitest'
 
-import { createFsRuntime } from '../src/runtime/fs-runtime'
+import { createOrchestratorRuntime } from '../src/runtime/fs-runtime'
 
 async function createWorkspace() {
-  const root = await mkdtemp(path.join(tmpdir(), 'while-fs-runtime-'))
+  const root = await mkdtemp(path.join(tmpdir(), 'while-orchestrator-runtime-'))
   const featureDir = path.join(root, 'specs', '001-demo')
   await mkdir(featureDir, { recursive: true })
   await mkdir(path.join(root, 'src'), { recursive: true })
@@ -36,9 +36,9 @@ async function createWorkspace() {
   return { featureDir, root }
 }
 
-test('FsRuntime persists graph, state, report and per-attempt artifacts with separated paths', async () => {
+test('OrchestratorRuntime persists graph, state, report and per-attempt artifacts with separated paths', async () => {
   const { featureDir, root } = await createWorkspace()
-  const runtime = createFsRuntime({
+  const runtime = createOrchestratorRuntime({
     featureDir,
     workspaceRoot: root,
   })

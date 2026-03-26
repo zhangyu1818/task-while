@@ -1,5 +1,4 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
+import { execa } from 'execa'
 
 import {
   getPullRequestSnapshotViaGraphQL,
@@ -7,13 +6,16 @@ import {
 } from './github-pr-snapshot'
 
 import type {
+  CreatePullRequestInput,
+  FindMergedPullRequestByHeadBranchInput,
+  FindOpenPullRequestByHeadBranchInput,
+  GetPullRequestSnapshotInput,
   GitHubPort,
   MergedPullRequestRef,
   PullRequestRef,
   PullRequestSnapshot,
+  SquashMergePullRequestInput,
 } from '../core/runtime'
-
-const execFileAsync = promisify(execFile)
 
 async function defaultRunGh(args: string[], cwd: string) {
   const env = process.env.GITHUB_BOT_TOKEN
@@ -22,7 +24,7 @@ async function defaultRunGh(args: string[], cwd: string) {
         GH_TOKEN: process.env.GITHUB_BOT_TOKEN,
       }
     : process.env
-  const result = await execFileAsync('gh', args, { cwd, env })
+  const result = await execa('gh', args, { cwd, env })
   return result.stdout.trim()
 }
 
@@ -38,12 +40,24 @@ function asString(value: unknown) {
   return typeof value === 'string' ? value : ''
 }
 
+interface LoginLike {
+  login?: unknown
+}
+
+interface MergeCommitLike {
+  oid?: unknown
+}
+
+interface RepoViewPayload {
+  nameWithOwner?: unknown
+}
+
 function asOwnerLogin(value: unknown) {
   if (typeof value === 'string') {
     return value
   }
   if (value && typeof value === 'object' && 'login' in value) {
-    return asString((value as { login?: unknown }).login)
+    return asString((value as LoginLike).login)
   }
   return ''
 }
@@ -65,7 +79,7 @@ export class GitHubRuntime implements GitHubPort {
     }
     const payload = JSON.parse(
       await this.runGh(['repo', 'view', '--json', 'nameWithOwner']),
-    ) as { nameWithOwner?: unknown }
+    ) as RepoViewPayload
     return asString(payload.nameWithOwner)
   }
 
@@ -78,12 +92,9 @@ export class GitHubRuntime implements GitHubPort {
     return owner
   }
 
-  public async createPullRequest(input: {
-    baseBranch: string
-    body: string
-    headBranch: string
-    title: string
-  }): Promise<PullRequestRef> {
+  public async createPullRequest(
+    input: CreatePullRequestInput,
+  ): Promise<PullRequestRef> {
     await this.runGh([
       'pr',
       'create',
@@ -107,9 +118,9 @@ export class GitHubRuntime implements GitHubPort {
     return created
   }
 
-  public async findMergedPullRequestByHeadBranch(input: {
-    headBranch: string
-  }): Promise<MergedPullRequestRef | null> {
+  public async findMergedPullRequestByHeadBranch(
+    input: FindMergedPullRequestByHeadBranchInput,
+  ): Promise<MergedPullRequestRef | null> {
     const owner = await this.resolveRepoOwner()
     const payload = JSON.parse(
       await this.runGh([
@@ -136,7 +147,7 @@ export class GitHubRuntime implements GitHubPort {
     const mergeCommit = match.mergeCommit
     const mergeCommitSha =
       mergeCommit && typeof mergeCommit === 'object' && 'oid' in mergeCommit
-        ? asString((mergeCommit as { oid?: unknown }).oid)
+        ? asString((mergeCommit as MergeCommitLike).oid)
         : ''
     if (!mergeCommitSha) {
       throw new Error(
@@ -151,9 +162,9 @@ export class GitHubRuntime implements GitHubPort {
     }
   }
 
-  public async findOpenPullRequestByHeadBranch(input: {
-    headBranch: string
-  }): Promise<null | PullRequestRef> {
+  public async findOpenPullRequestByHeadBranch(
+    input: FindOpenPullRequestByHeadBranchInput,
+  ): Promise<null | PullRequestRef> {
     const owner = await this.resolveRepoOwner()
     const payload = JSON.parse(
       await this.runGh([
@@ -184,9 +195,9 @@ export class GitHubRuntime implements GitHubPort {
     }
   }
 
-  public async getPullRequestSnapshot(input: {
-    pullRequestNumber: number
-  }): Promise<PullRequestSnapshot> {
+  public async getPullRequestSnapshot(
+    input: GetPullRequestSnapshotInput,
+  ): Promise<PullRequestSnapshot> {
     const repo = await this.resolveRepo()
     const [owner, repoName] = repo.split('/')
     if (!owner || !repoName) {
@@ -200,10 +211,7 @@ export class GitHubRuntime implements GitHubPort {
     })
   }
 
-  public async squashMergePullRequest(input: {
-    pullRequestNumber: number
-    subject: string
-  }) {
+  public async squashMergePullRequest(input: SquashMergePullRequestInput) {
     const repo = await this.resolveRepo()
     const commitSha = asString(
       JSON.parse(

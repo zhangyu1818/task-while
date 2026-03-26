@@ -1,20 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-export async function ensureDir(targetDir: string) {
-  await mkdir(targetDir, { recursive: true })
-}
-
-export async function readTextIfExists(filePath: string) {
-  try {
-    return await readFile(filePath, 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return ''
-    }
-    throw error
-  }
-}
+import * as fsExtra from 'fs-extra'
 
 export function isWithinRelativePath(targetPath: string, basePath: string) {
   return targetPath === basePath || targetPath.startsWith(`${basePath}/`)
@@ -38,8 +24,8 @@ export function filterPorcelainStatus(
 
 export async function writeJsonAtomic(filePath: string, value: unknown) {
   const dir = path.dirname(filePath)
-  await ensureDir(dir)
+  await fsExtra.ensureDir(dir)
   const tempFile = `${filePath}.tmp`
-  await writeFile(tempFile, JSON.stringify(value, null, 2))
-  await rename(tempFile, filePath)
+  await fsExtra.writeFile(tempFile, JSON.stringify(value, null, 2))
+  await fsExtra.rename(tempFile, filePath)
 }

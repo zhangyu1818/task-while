@@ -16,6 +16,7 @@ import type { OrchestratorRuntime } from '../src/core/runtime'
 import type {
   ImplementOutput,
   ReviewOutput,
+  ReviewVerdict,
   TaskContext,
   TaskGraph,
 } from '../src/types'
@@ -116,7 +117,7 @@ export function createImplement(taskId: string, file: string): ImplementOutput {
 export function createReview(
   taskId: string,
   criterion: string,
-  verdict: ReviewOutput['verdict'] = 'pass',
+  verdict: ReviewVerdict = 'pass',
 ): ReviewOutput {
   return {
     overallRisk: verdict === 'pass' ? 'low' : 'medium',
@@ -144,17 +145,21 @@ export function createReview(
   }
 }
 
-export function createRuntime(input?: {
+export interface CreateRuntimeInput {
   ancestorCommits?: string[]
   changedFiles?: string[][]
   commitFailures?: (Error | null)[]
   taskContexts?: Record<string, TaskContext>
-}): {
+}
+
+export interface RuntimeBundle {
   git: FakeGit
   runtime: OrchestratorRuntime
   store: InMemoryStore
   workspace: InMemoryWorkspace
-} {
+}
+
+export function createRuntime(input?: CreateRuntimeInput): RuntimeBundle {
   const store = new InMemoryStore()
   const workspace = new InMemoryWorkspace({
     kind: 'per-task',

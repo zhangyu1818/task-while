@@ -1,11 +1,11 @@
 import { rewindTask } from '../core/orchestrator'
 import { normalizeTaskGraph } from '../core/task-normalizer'
-import { createFsRuntime } from '../runtime/fs-runtime'
+import { createOrchestratorRuntime } from '../runtime/fs-runtime'
 
 import type { WorkspaceContext } from '../types'
 
 export async function rewindCommand(context: WorkspaceContext, taskId: string) {
-  const runtime = createFsRuntime({
+  const runtime = createOrchestratorRuntime({
     featureDir: context.featureDir,
     workspaceRoot: context.workspaceRoot,
   })

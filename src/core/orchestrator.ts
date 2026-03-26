@@ -12,35 +12,48 @@ import type { FinalReport, TaskGraph, WorkflowState } from '../types'
 import type { WorkflowRuntime } from '../workflow/preset'
 import type { OrchestratorRuntime } from './runtime'
 
-export async function runWorkflow(input: {
+export interface WorkflowRunResult {
+  state: WorkflowState
+  summary: FinalReport['summary']
+}
+
+export interface RunWorkflowInput {
   graph: TaskGraph
   runtime: OrchestratorRuntime
   untilTaskId?: string
   workflow: WorkflowRuntime
-}): Promise<{ state: WorkflowState; summary: FinalReport['summary'] }> {
+}
+
+export interface RewindTaskInput {
+  loadGraph: () => Promise<TaskGraph>
+  runtime: OrchestratorRuntime
+  taskId: string
+}
+
+export async function runWorkflow(
+  input: RunWorkflowInput,
+): Promise<WorkflowRunResult> {
   const workflow = input.workflow
+  const isPullRequestMode = workflow.preset.mode === 'pull-request'
   await input.runtime.store.saveGraph(input.graph)
+  const storedState = await input.runtime.store.loadState()
   let state = alignStateWithGraph(
     input.graph,
-    (await input.runtime.store.loadState()) ??
-      createInitialWorkflowState(input.graph),
+    storedState ?? createInitialWorkflowState(input.graph),
     {
-      preserveRunningIntegrate: input.workflow.preset.mode === 'pull-request',
-      preserveRunningReview: input.workflow.preset.mode === 'pull-request',
+      preserveRunningIntegrate: isPullRequestMode,
+      preserveRunningReview: isPullRequestMode,
     },
   )
   let report = await persistState(input.runtime, input.graph, state)
 
-  for (;;) {
+  while (
+    report.summary.finalStatus !== 'blocked' &&
+    report.summary.finalStatus !== 'replan_required'
+  ) {
     if (
       input.untilTaskId &&
       state.tasks[input.untilTaskId]?.status === 'done'
-    ) {
-      break
-    }
-    if (
-      report.summary.finalStatus === 'blocked' ||
-      report.summary.finalStatus === 'replan_required'
     ) {
       break
     }
@@ -91,11 +104,7 @@ export async function runWorkflow(input: {
   }
 }
 
-export async function rewindTask(input: {
-  loadGraph: () => Promise<TaskGraph>
-  runtime: OrchestratorRuntime
-  taskId: string
-}) {
+export async function rewindTask(input: RewindTaskInput) {
   const state = await input.runtime.store.loadState()
   if (!state) {
     throw new Error('Cannot rewind before workflow state exists')
@@ -122,14 +131,14 @@ export async function rewindTask(input: {
     if (!previousTask) {
       continue
     }
-    if (
-      previousTask.status === 'done' &&
-      (await input.runtime.git.isAncestorOfHead(previousTask.commitSha))
-    ) {
-      nextState.tasks[task.id] = previousTask
-      continue
-    }
     if (previousTask.status === 'done') {
+      const isAncestorOfHead = await input.runtime.git.isAncestorOfHead(
+        previousTask.commitSha,
+      )
+      if (isAncestorOfHead) {
+        nextState.tasks[task.id] = previousTask
+        continue
+      }
       rewoundTaskIds.push(task.id)
       nextState.tasks[task.id] = {
         attempt: 0,

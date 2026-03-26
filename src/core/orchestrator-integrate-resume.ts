@@ -1,3 +1,7 @@
+import {
+  isPullRequestWorkflowPreset,
+  type WorkflowRuntime,
+} from '../workflow/preset'
 import { recordCommitFailure, recordIntegrateResult } from './engine'
 import {
   appendEvent,
@@ -13,17 +17,25 @@ import type {
   TaskGraph,
   WorkflowState,
 } from '../types'
-import type { WorkflowRuntime } from '../workflow/preset'
 import type { OrchestratorRuntime } from './runtime'
 
-export async function resumePullRequestIntegrate(input: {
+export interface ResumePullRequestIntegrateInput {
   graph: TaskGraph
   runtime: OrchestratorRuntime
   state: WorkflowState
   workflow: WorkflowRuntime
-}): Promise<null | { report: FinalReport; state: WorkflowState }> {
+}
+
+export interface ResumePullRequestIntegrateResult {
+  report: FinalReport
+  state: WorkflowState
+}
+
+export async function resumePullRequestIntegrate(
+  input: ResumePullRequestIntegrateInput,
+): Promise<null | ResumePullRequestIntegrateResult> {
   if (
-    input.workflow.preset.mode !== 'pull-request' ||
+    !isPullRequestWorkflowPreset(input.workflow.preset) ||
     !input.state.currentTaskId
   ) {
     return null

@@ -1,6 +1,8 @@
 import type {
+  PendingTaskState,
   ReviewFinding,
   ReviewOutput,
+  ReviewVerdict,
   TaskDefinition,
   TaskGraph,
   TaskState,
@@ -11,10 +13,7 @@ export function cloneState(state: WorkflowState): WorkflowState {
   return structuredClone(state)
 }
 
-export function createBaseTaskState(): Extract<
-  TaskState,
-  { status: 'pending' }
-> {
+export function createBaseTaskState(): PendingTaskState {
   return {
     attempt: 0,
     generation: 1,
@@ -53,10 +52,7 @@ export function canStartTask(
 
 export function withReviewMetadata(
   taskState: TaskState,
-  input: {
-    findings?: ReviewFinding[]
-    reviewVerdict?: ReviewOutput['verdict']
-  },
+  input: WithReviewMetadataInput,
 ) {
   const next = {
     attempt: taskState.attempt,
@@ -76,7 +72,16 @@ export function withReviewMetadata(
   return next
 }
 
-export function shouldPassZeroGate(input: { review: ReviewOutput }) {
+export interface WithReviewMetadataInput {
+  findings?: ReviewFinding[]
+  reviewVerdict?: ReviewVerdict
+}
+
+export interface ZeroGateInput {
+  review: ReviewOutput
+}
+
+export function shouldPassZeroGate(input: ZeroGateInput) {
   return (
     input.review.verdict === 'pass' &&
     input.review.findings.length === 0 &&

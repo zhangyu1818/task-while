@@ -1,7 +1,27 @@
-export function buildReviewThreadCommentsArgs(input: {
+export interface BuildReviewThreadCommentsArgsInput {
   after?: null | string
   threadId: string
-}) {
+}
+
+export interface BuildSnapshotArgsInput {
+  commentsAfter?: null | string
+  filesAfter?: null | string
+  includeComments: boolean
+  includeFiles: boolean
+  includeReactions: boolean
+  includeReviews: boolean
+  includeReviewThreads: boolean
+  number: number
+  owner: string
+  reactionsAfter?: null | string
+  repo: string
+  reviewsAfter?: null | string
+  reviewThreadsAfter?: null | string
+}
+
+export function buildReviewThreadCommentsArgs(
+  input: BuildReviewThreadCommentsArgsInput,
+) {
   const args = ['api', 'graphql', '-F', `threadId=${input.threadId}`]
   if (input.after) {
     args.push('-f', `commentsAfter=${input.after}`)
@@ -24,21 +44,7 @@ export function buildReviewThreadCommentsArgs(input: {
   return args
 }
 
-export function buildSnapshotArgs(input: {
-  commentsAfter?: null | string
-  filesAfter?: null | string
-  includeComments: boolean
-  includeFiles: boolean
-  includeReactions: boolean
-  includeReviews: boolean
-  includeReviewThreads: boolean
-  number: number
-  owner: string
-  reactionsAfter?: null | string
-  repo: string
-  reviewsAfter?: null | string
-  reviewThreadsAfter?: null | string
-}) {
+export function buildSnapshotArgs(input: BuildSnapshotArgsInput) {
   const args = [
     'api',
     'graphql',

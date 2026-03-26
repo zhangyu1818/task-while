@@ -38,19 +38,15 @@ Current support level:
 
 ## Workspace Resolution
 
-The workspace root must contain a `specs/` directory.
+The current working directory is the workspace root and must contain a `specs/` directory.
 
-Resolution order:
-
-1. `--workspace`
-2. upward search from `cwd`
+If `cwd/specs` does not exist, the CLI fails with a clear user-facing error.
 
 Feature resolution order:
 
 1. `--feature`
-2. `SPECIFY_FEATURE`
-3. current git branch prefix
-4. the only feature directory under `specs/`
+2. current git branch prefix
+3. the only feature directory under `specs/`
 
 ## Commands
 

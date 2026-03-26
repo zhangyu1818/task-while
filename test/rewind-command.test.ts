@@ -13,29 +13,24 @@ import {
   ScriptedWorkflowProvider,
 } from './command-test-helpers'
 
+import type { CodexAgentClientOptions } from '../src/agents/codex'
+import type { FinalReport, WorkflowState } from '../src/types'
+
 const providerState = vi.hoisted(() => ({
+  createdOptions: [] as CodexAgentClientOptions[],
   queue: [] as ScriptedWorkflowProvider[],
-  createdOptions: [] as {
-    onEvent?: (event: { item?: { type?: string }; type: string }) => void
-    workspaceRoot: string
-  }[],
 }))
 
 vi.mock('../src/agents/codex', () => {
   return {
-    createCodexProvider: vi.fn(
-      (options: {
-        onEvent?: (event: { item?: { type?: string }; type: string }) => void
-        workspaceRoot: string
-      }) => {
-        providerState.createdOptions.push(options)
-        const provider = providerState.queue.shift()
-        if (!provider) {
-          throw new Error('Missing scripted workflow provider')
-        }
-        return provider
-      },
-    ),
+    createCodexProvider: vi.fn((options: CodexAgentClientOptions) => {
+      providerState.createdOptions.push(options)
+      const provider = providerState.queue.shift()
+      if (!provider) {
+        throw new Error('Missing scripted workflow provider')
+      }
+      return provider
+    }),
   }
 })
 
@@ -85,23 +80,10 @@ test('rewindCommand hard-resets code and rebuilds runtime from surviving commits
   const tasksMd = await readFile(path.join(featureDir, 'tasks.md'), 'utf8')
   const state = JSON.parse(
     await readFile(path.join(featureDir, '.while', 'state.json'), 'utf8'),
-  ) as {
-    tasks: Record<
-      string,
-      { attempt: number; generation: number; status: string }
-    >
-  }
+  ) as WorkflowState
   const report = JSON.parse(
     await readFile(path.join(featureDir, '.while', 'report.json'), 'utf8'),
-  ) as {
-    summary: { finalStatus: string }
-    tasks: {
-      commitSha?: string
-      generation: number
-      id: string
-      status: string
-    }[]
-  }
+  ) as FinalReport
 
   expect(messages).toEqual(['Initial commit'])
   expect(await currentHead(root)).not.toBe(initialHead)

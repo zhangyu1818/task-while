@@ -44,18 +44,24 @@ export interface PullRequestReviewInput {
   task: TaskDefinition
 }
 
+export interface PullRequestReviewApprovedResult {
+  kind: 'approved'
+  review: ReviewOutput
+}
+
+export interface PullRequestReviewPendingResult {
+  kind: 'pending'
+}
+
+export interface PullRequestReviewRejectedResult {
+  kind: 'rejected'
+  review: ReviewOutput
+}
+
 export type PullRequestReviewResult =
-  | {
-      kind: 'approved'
-      review: ReviewOutput
-    }
-  | {
-      kind: 'pending'
-    }
-  | {
-      kind: 'rejected'
-      review: ReviewOutput
-    }
+  | PullRequestReviewApprovedResult
+  | PullRequestReviewPendingResult
+  | PullRequestReviewRejectedResult
 
 export interface RemoteReviewerProvider {
   evaluatePullRequestReview: (

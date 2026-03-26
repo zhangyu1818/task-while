@@ -58,15 +58,15 @@ workflow:
 
 ### `spec-while run`
 
-Runs the current feature workflow from the existing `.while` state or initializes a new one.
+Runs the current feature workflow from the existing `.while` state or initializes a new one. Run it from the workspace root so the current directory contains `specs/`.
 
 ```bash
-pnpm exec spec-while run --workspace /path/to/workspace --feature 001-demo
+cd /path/to/workspace
+pnpm exec spec-while run --feature 001-demo
 ```
 
 Useful flags:
 
-- `--workspace <path>`: resolve the workspace root explicitly
 - `--feature <featureId>`: select the feature explicitly
 - `--until-task <taskId>`: stop after the target task reaches `done`
 - `--verbose`: stream agent events to `stderr`
@@ -76,7 +76,8 @@ Useful flags:
 Rewinds code and workflow state to the point before a completed task.
 
 ```bash
-pnpm exec spec-while rewind --workspace /path/to/workspace --feature 001-demo --task T001
+cd /path/to/workspace
+pnpm exec spec-while rewind --feature 001-demo --task T001
 ```
 
 `rewind` performs a hard git reset to the parent of the task commit, deletes the current `.while` directory for that feature, and rebuilds workflow state from the rewound repository state.

@@ -24,58 +24,89 @@ export interface CodexUsage {
   output_tokens: number
 }
 
+export interface CodexTurnFailedEvent {
+  error: CodexTurnFailedError
+  type: 'turn.failed'
+}
+
+export interface CodexItemEvent {
+  item: CodexItemPayload
+  type: 'item.completed' | 'item.started' | 'item.updated'
+}
+
+export interface CodexErrorEvent {
+  message: string
+  type: 'error'
+}
+
+export interface CodexThreadStartedEvent {
+  thread_id: string
+  type: 'thread.started'
+}
+
+export interface CodexTurnCompletedEvent {
+  type: 'turn.completed'
+  usage: CodexUsage
+}
+
+export interface CodexTurnStartedEvent {
+  type: 'turn.started'
+}
+
+export interface CodexTurnFailedError {
+  message: string
+}
+
+export interface CodexItemPayload {
+  text?: string
+  type: string
+}
+
 export type CodexThreadEvent =
-  | {
-      error: {
-        message: string
-      }
-      type: 'turn.failed'
-    }
-  | {
-      item: {
-        text?: string
-        type: string
-      }
-      type: 'item.completed' | 'item.started' | 'item.updated'
-    }
-  | {
-      message: string
-      type: 'error'
-    }
-  | {
-      thread_id: string
-      type: 'thread.started'
-    }
-  | {
-      type: 'turn.completed'
-      usage: CodexUsage
-    }
-  | {
-      type: 'turn.started'
-    }
+  | CodexErrorEvent
+  | CodexItemEvent
+  | CodexThreadStartedEvent
+  | CodexTurnCompletedEvent
+  | CodexTurnFailedEvent
+  | CodexTurnStartedEvent
+
+export type CodexThreadEventHandler = (event: CodexThreadEvent) => void
 
 export interface CodexRunStreamedResult {
   events: AsyncGenerator<CodexThreadEvent>
 }
 
+export interface CodexThreadRunOptions {
+  outputSchema: Record<string, unknown>
+}
+
 export interface CodexThreadLike {
   run: (
     prompt: string,
-    options: { outputSchema: Record<string, unknown> },
+    options: CodexThreadRunOptions,
   ) => Promise<CodexRunResult>
   runStreamed?: (
     prompt: string,
-    options: { outputSchema: Record<string, unknown> },
+    options: CodexThreadRunOptions,
   ) => Promise<CodexRunStreamedResult>
 }
 
+export interface CodexStartThreadOptions {
+  workingDirectory: string
+}
+
 export interface CodexClientLike {
-  startThread: (options: { workingDirectory: string }) => CodexThreadLike
+  startThread: (options: CodexStartThreadOptions) => CodexThreadLike
 }
 
 export interface CodexAgentClientOptions {
-  onEvent?: (event: CodexThreadEvent) => void
+  onEvent?: CodexThreadEventHandler
   workspaceRoot: string
+}
+
+export interface CodexStructuredInput {
+  outputSchema: Record<string, unknown>
+  prompt: string
 }
 
 async function defaultClientFactory(): Promise<CodexClientLike> {
@@ -91,7 +122,7 @@ export class CodexAgentClient implements ImplementerProvider, ReviewerProvider {
 
   private async collectStreamedTurn<T>(
     thread: CodexThreadLike,
-    input: { outputSchema: Record<string, unknown>; prompt: string },
+    input: CodexStructuredInput,
   ): Promise<T> {
     const streamedTurn = await thread.runStreamed!(input.prompt, {
       outputSchema: input.outputSchema,
@@ -135,10 +166,7 @@ export class CodexAgentClient implements ImplementerProvider, ReviewerProvider {
     return this.clientPromise
   }
 
-  private async invokeStructured<T>(input: {
-    outputSchema: Record<string, unknown>
-    prompt: string
-  }): Promise<T> {
+  private async invokeStructured<T>(input: CodexStructuredInput): Promise<T> {
     const client = await this.getClient()
     const thread = client.startThread({
       workingDirectory: this.options.workspaceRoot,

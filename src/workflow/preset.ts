@@ -27,15 +27,19 @@ export interface DirectReviewPhaseContext extends BaseReviewPhaseContext {
 
 export type PullRequestReviewPhaseContext = BaseReviewPhaseContext
 
+export interface ApprovedReviewPhaseResult {
+  kind: 'approved'
+  review: ReviewOutput
+}
+
+export interface RejectedReviewPhaseResult {
+  kind: 'rejected'
+  review: ReviewOutput
+}
+
 export type ReviewPhaseResult =
-  | {
-      kind: 'approved'
-      review: ReviewOutput
-    }
-  | {
-      kind: 'rejected'
-      review: ReviewOutput
-    }
+  | ApprovedReviewPhaseResult
+  | RejectedReviewPhaseResult
 
 export interface IntegratePhaseContext {
   commitMessage: string
@@ -45,10 +49,12 @@ export interface IntegratePhaseContext {
 
 export interface IntegratePhaseResult {
   kind: 'completed'
-  result: {
-    commitSha: string
-    summary: string
-  }
+  result: IntegrateResult
+}
+
+export interface IntegrateResult {
+  commitSha: string
+  summary: string
 }
 
 export interface DirectWorkflowPreset {
@@ -64,6 +70,12 @@ export interface PullRequestWorkflowPreset {
 }
 
 export type WorkflowPreset = DirectWorkflowPreset | PullRequestWorkflowPreset
+
+export function isPullRequestWorkflowPreset(
+  preset: WorkflowPreset,
+): preset is PullRequestWorkflowPreset {
+  return preset.mode === 'pull-request'
+}
 
 export interface WorkflowRuntime {
   preset: WorkflowPreset

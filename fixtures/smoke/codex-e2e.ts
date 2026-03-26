@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
-import { execFile, spawn } from 'node:child_process'
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
+
+import { execa } from 'execa'
+
+import type { FinalReport, WorkflowState } from '../../src/types'
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -11,8 +13,6 @@ const repoRoot = path.resolve(
 )
 const templateRoot = path.join(repoRoot, 'fixtures', 'e2e', 'simple-task')
 const whileEntry = path.join(repoRoot, 'src', 'index.ts')
-const execFileAsync = promisify(execFile)
-
 interface CreateWhileE2eArgsInput {
   command: 'rewind' | 'run'
   taskId?: string
@@ -36,8 +36,6 @@ export function createWhileE2eArgs(input: CreateWhileE2eArgsInput) {
     'tsx',
     whileEntry,
     input.command,
-    '--workspace',
-    input.workspaceRoot,
     '--feature',
     '001-simple',
     '--verbose',
@@ -52,7 +50,7 @@ export function createWhileE2eArgs(input: CreateWhileE2eArgsInput) {
 }
 
 async function git(root: string, args: string[]) {
-  const result = await execFileAsync('git', args, {
+  const result = await execa('git', args, {
     cwd: root,
   })
   return result.stdout.trim()
@@ -77,44 +75,43 @@ async function trackedFilesInHead(root: string) {
 }
 
 async function runWhileE2e(input: CreateWhileE2eArgsInput) {
-  return new Promise<{ stderr: string; stdout: string }>((resolve, reject) => {
-    const child = spawn(process.execPath, createWhileE2eArgs(input), {
-      cwd: repoRoot,
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-
-    let stderr = ''
-    let stdout = ''
-    child.stdout.on('data', (chunk) => {
-      relayChunk(
-        chunk,
-        (text) => process.stdout.write(text),
-        (text) => {
-          stdout += text
-        },
-      )
-    })
-    child.stderr.on('data', (chunk) => {
-      relayChunk(
-        chunk,
-        (text) => process.stderr.write(text),
-        (text) => {
-          stderr += text
-        },
-      )
-    })
-    child.on('error', reject)
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve({ stderr, stdout })
-        return
-      }
-      reject(
-        new Error(`while e2e process exited with code ${code ?? 'unknown'}`),
-      )
-    })
+  const subprocess = execa(process.execPath, createWhileE2eArgs(input), {
+    cwd: input.workspaceRoot,
+    env: process.env,
+    reject: false,
   })
+
+  let stderr = ''
+  let stdout = ''
+  const stdoutStream = subprocess.stdout
+  const stderrStream = subprocess.stderr
+  if (!stdoutStream || !stderrStream) {
+    throw new Error('Expected subprocess streams to be available')
+  }
+  stdoutStream.on('data', (chunk) => {
+    relayChunk(
+      chunk,
+      (text) => process.stdout.write(text),
+      (text) => {
+        stdout += text
+      },
+    )
+  })
+  stderrStream.on('data', (chunk) => {
+    relayChunk(
+      chunk,
+      (text) => process.stderr.write(text),
+      (text) => {
+        stderr += text
+      },
+    )
+  })
+
+  const result = await subprocess
+  if (result.exitCode !== 0) {
+    throw new Error(`while e2e process exited with code ${result.exitCode}`)
+  }
+  return { stderr, stdout }
 }
 
 async function main() {
@@ -140,9 +137,7 @@ async function main() {
         path.join(workspaceRoot, 'specs', '001-simple', '.while', 'state.json'),
         'utf8',
       ),
-    ) as {
-      tasks: Record<string, { commitSha?: string; status: string }>
-    }
+    ) as WorkflowState
     const reportAfterRun = JSON.parse(
       await readFile(
         path.join(
@@ -154,10 +149,7 @@ async function main() {
         ),
         'utf8',
       ),
-    ) as {
-      summary: { finalStatus: string }
-      tasks: { commitSha?: string; id: string; status: string }[]
-    }
+    ) as FinalReport
     const messagesAfterRun = await gitLogMessages(workspaceRoot)
     const trackedFiles = await trackedFilesInHead(workspaceRoot)
     const greetingTaskAfterRun = stateAfterRun.tasks.T001
@@ -170,8 +162,8 @@ async function main() {
     assert.ok(farewellTaskAfterRun)
     assert.equal(greetingTaskAfterRun.status, 'done')
     assert.equal(farewellTaskAfterRun.status, 'done')
-    assert.match(greetingTaskAfterRun.commitSha ?? '', /\S+/)
-    assert.match(farewellTaskAfterRun.commitSha ?? '', /\S+/)
+    assert.match(greetingTaskAfterRun.commitSha, /\S+/)
+    assert.match(farewellTaskAfterRun.commitSha, /\S+/)
     assert.equal(
       reportAfterRun.tasks.every(
         (task) => task.status === 'done' && typeof task.commitSha === 'string',
@@ -203,12 +195,7 @@ async function main() {
         path.join(workspaceRoot, 'specs', '001-simple', '.while', 'state.json'),
         'utf8',
       ),
-    ) as {
-      tasks: Record<
-        string,
-        { attempt: number; generation: number; status: string }
-      >
-    }
+    ) as WorkflowState
     const reportAfterReopen = JSON.parse(
       await readFile(
         path.join(
@@ -220,10 +207,7 @@ async function main() {
         ),
         'utf8',
       ),
-    ) as {
-      summary: { finalStatus: string }
-      tasks: { generation: number; id: string; status: string }[]
-    }
+    ) as FinalReport
     const greetingSource = await readFile(
       path.join(workspaceRoot, 'src', 'greeting.ts'),
       'utf8',

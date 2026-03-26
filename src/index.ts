@@ -6,7 +6,22 @@ import { rewindCommand } from './commands/rewind'
 import { runCommand } from './commands/run'
 import { resolveWorkspaceContext } from './runtime/workspace-resolver'
 
-function assertNoPositionalArgs(values: { _: string[] }) {
+interface PositionalArgs {
+  _: string[]
+}
+
+interface RunOptions {
+  feature?: string
+  untilTaskId?: string
+  verbose: boolean
+}
+
+interface RewindOptions {
+  feature?: string
+  taskId: string
+}
+
+function assertNoPositionalArgs(values: PositionalArgs) {
   if (values._.length !== 0) {
     throw new Error(`Unexpected positional arguments: ${values._.join(' ')}`)
   }
@@ -18,17 +33,20 @@ function parseRunOptions(args: string[]) {
       '--feature': String,
       '--until-task': String,
       '--verbose': Boolean,
-      '--workspace': String,
     },
     { argv: args },
   )
   assertNoPositionalArgs(values)
-  return {
-    feature: values['--feature'],
-    untilTaskId: values['--until-task'],
+  const options: RunOptions = {
     verbose: values['--verbose'] ?? false,
-    workspace: values['--workspace'],
   }
+  if (values['--until-task']) {
+    options.untilTaskId = values['--until-task']
+  }
+  if (values['--feature']) {
+    options.feature = values['--feature']
+  }
+  return options
 }
 
 function parseRewindOptions(args: string[]) {
@@ -36,7 +54,6 @@ function parseRewindOptions(args: string[]) {
     {
       '--feature': String,
       '--task': String,
-      '--workspace': String,
     },
     { argv: args },
   )
@@ -44,11 +61,13 @@ function parseRewindOptions(args: string[]) {
   if (!values['--task']) {
     throw new Error('Missing --task')
   }
-  return {
-    feature: values['--feature'],
+  const options: RewindOptions = {
     taskId: values['--task'],
-    workspace: values['--workspace'],
   }
+  if (values['--feature']) {
+    options.feature = values['--feature']
+  }
+  return options
 }
 
 export async function runCli(argv = process.argv.slice(2)) {
@@ -58,9 +77,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       const options = parseRunOptions(args)
       const context = await resolveWorkspaceContext({
         cwd: process.cwd(),
-        env: process.env,
         ...(options.feature ? { feature: options.feature } : {}),
-        ...(options.workspace ? { workspace: options.workspace } : {}),
       })
       const result = await runCommand(context, {
         ...(options.untilTaskId ? { untilTaskId: options.untilTaskId } : {}),
@@ -75,9 +92,7 @@ export async function runCli(argv = process.argv.slice(2)) {
       const options = parseRewindOptions(args)
       const context = await resolveWorkspaceContext({
         cwd: process.cwd(),
-        env: process.env,
         ...(options.feature ? { feature: options.feature } : {}),
-        ...(options.workspace ? { workspace: options.workspace } : {}),
       })
       const result = await rewindCommand(context, options.taskId)
       process.stdout.write(

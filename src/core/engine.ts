@@ -37,10 +37,7 @@ export function createInitialWorkflowState(graph: TaskGraph): WorkflowState {
 export function alignStateWithGraph(
   graph: TaskGraph,
   state: WorkflowState,
-  options?: {
-    preserveRunningIntegrate?: boolean
-    preserveRunningReview?: boolean
-  },
+  options?: AlignStateWithGraphOptions,
 ): WorkflowState {
   const next = cloneState(state)
   const alignedTasks = Object.fromEntries(
@@ -171,7 +168,7 @@ export function recordReviewResult(
   graph: TaskGraph,
   state: WorkflowState,
   taskId: string,
-  input: { review: ReviewOutput },
+  input: RecordReviewResultInput,
 ): WorkflowState {
   const next = cloneState(state)
   const task = getTask(graph, taskId)
@@ -218,4 +215,13 @@ export function recordReviewResult(
           status: 'rework',
         }
   return next
+}
+
+export interface AlignStateWithGraphOptions {
+  preserveRunningIntegrate?: boolean
+  preserveRunningReview?: boolean
+}
+
+export interface RecordReviewResultInput {
+  review: ReviewOutput
 }
