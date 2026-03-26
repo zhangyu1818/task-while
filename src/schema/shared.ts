@@ -19,12 +19,7 @@ export const taskStatusValues = [
   'blocked',
   'replan',
 ] as const
-export const runningStageValues = [
-  'implement',
-  'verify',
-  'review',
-  'integrate',
-] as const
+export const runningStageValues = ['implement', 'review', 'integrate'] as const
 export const reviewVerdictValues = [
   'blocked',
   'pass',
@@ -43,9 +38,6 @@ export const workflowEventTypeValues = [
   'attempt_started',
   'implement_succeeded',
   'implement_failed',
-  'verify_started',
-  'verify_completed',
-  'verify_failed',
   'review_started',
   'review_completed',
   'review_failed',

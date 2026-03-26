@@ -30,10 +30,8 @@ export async function resumePullRequestReview(input: {
   state: WorkflowState
   workflow: WorkflowRuntime
 }): Promise<null | { report: FinalReport; state: WorkflowState }> {
-  if (
-    input.workflow.preset.mode !== 'pull-request' ||
-    !input.state.currentTaskId
-  ) {
+  const preset = input.workflow.preset
+  if (preset.mode !== 'pull-request' || !input.state.currentTaskId) {
     return null
   }
 
@@ -53,13 +51,11 @@ export async function resumePullRequestReview(input: {
     generation: taskState.generation,
     taskId,
   }
-  const [implementArtifact, verifyArtifact] = await Promise.all([
-    input.runtime.store.loadImplementArtifact(artifactKey),
-    input.runtime.store.loadVerifyArtifact(artifactKey),
-  ])
+  const implementArtifact =
+    await input.runtime.store.loadImplementArtifact(artifactKey)
 
-  if (!implementArtifact || !verifyArtifact) {
-    const reason = `Cannot resume review for ${taskId} without persisted implement and verify artifacts`
+  if (!implementArtifact) {
+    const reason = `Cannot resume review for ${taskId} without a persisted implement artifact`
     const nextState = recordReviewFailure(
       input.graph,
       input.state,
@@ -87,8 +83,7 @@ export async function resumePullRequestReview(input: {
   let reviewPhaseKind: 'approved' | 'rejected'
 
   try {
-    const reviewPhase = await input.workflow.preset.review({
-      actualChangedFiles: implementArtifact.result.changedFiles,
+    const reviewPhase = await preset.review({
       attempt: taskState.attempt,
       commitMessage,
       generation: taskState.generation,
@@ -97,7 +92,6 @@ export async function resumePullRequestReview(input: {
       runtime: input.runtime,
       task,
       taskContext,
-      verify: verifyArtifact.result,
     })
     reviewPhaseKind = reviewPhase.kind
     review = reviewPhase.review
@@ -146,10 +140,7 @@ export async function resumePullRequestReview(input: {
     type: 'review_completed',
   })
 
-  if (
-    reviewPhaseKind === 'approved' &&
-    shouldPassZeroGate({ review, verify: verifyArtifact.result })
-  ) {
+  if (reviewPhaseKind === 'approved' && shouldPassZeroGate({ review })) {
     let nextState = recordReviewApproved(input.state, task.id, review)
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
@@ -195,7 +186,6 @@ export async function resumePullRequestReview(input: {
     nextState = recordIntegrateResult(input.graph, nextState, task.id, {
       commitSha: integrateResult.result.commitSha,
       review,
-      verify: verifyArtifact.result,
     })
     report = await persistState(input.runtime, input.graph, nextState)
     await appendEvent(input.runtime, {
@@ -211,7 +201,6 @@ export async function resumePullRequestReview(input: {
       commitSha: integrateResult.result.commitSha,
       implementArtifact,
       reviewArtifact,
-      verifyArtifact,
     })
     return {
       report,
@@ -221,7 +210,6 @@ export async function resumePullRequestReview(input: {
 
   const nextState = recordReviewResult(input.graph, input.state, task.id, {
     review,
-    verify: verifyArtifact.result,
   })
   const report = await persistState(input.runtime, input.graph, nextState)
   return {

@@ -9,6 +9,7 @@ This file defines how agents should collaborate **when working on the while repo
 - Respond in Chinese when interacting with the user in this repository.
 - Do not add code comments unless the user explicitly asks for them.
 - Prefer `pnpm` for dependency management and script execution.
+- Before finalizing or committing changes, run `pnpm lint:fix` and `pnpm format`.
 - Keep documentation aligned with the current implementation. If behavior changes, update the relevant docs in the same change.
 
 ## Repository Intent
