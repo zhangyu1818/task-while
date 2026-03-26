@@ -92,3 +92,26 @@ test('OrchestratorRuntime task context rejects missing spec.md', async () => {
     }),
   ).rejects.toThrow(/spec\.md/i)
 })
+
+test('OrchestratorRuntime task context allows empty spec.md', async () => {
+  const { featureDir, root } = await createFeatureWorkspace()
+  await writeFile(path.join(featureDir, 'spec.md'), '')
+
+  const runtime = createOrchestratorRuntime({
+    featureDir,
+    workspaceRoot: root,
+  })
+
+  const context = await runtime.workspace.loadTaskContext({
+    id: 'T002',
+    acceptance: ['works'],
+    dependsOn: [],
+    maxAttempts: 1,
+    parallelizable: false,
+    phase: 'Core',
+    reviewRubric: ['clear'],
+    title: 'Implement follow-up',
+  })
+
+  expect(context.spec).toBe('')
+})

@@ -58,8 +58,7 @@ async function readTextFileIfExists(filePath: string) {
   if (!exists) {
     return null
   }
-  const raw = await readFile(filePath, 'utf8')
-  return raw || null
+  return readFile(filePath, 'utf8')
 }
 
 async function readRequiredTextFile(filePath: string) {
@@ -75,7 +74,7 @@ async function readValidatedJsonFileIfExists<T>(
   validate: (value: unknown) => T,
 ): Promise<null | T> {
   const raw = await readTextFileIfExists(filePath)
-  if (!raw) {
+  if (raw === null) {
     return null
   }
   return validate(JSON.parse(raw))
