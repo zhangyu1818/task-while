@@ -1,3 +1,4 @@
+import type { PullRequestSnapshot } from '../core/runtime'
 import type {
   ImplementOutput,
   ReviewFinding,
@@ -40,7 +41,34 @@ export interface ReviewerProvider {
   review: (input: ReviewAgentInput) => Promise<ReviewOutput>
 }
 
+export interface PullRequestReviewInput {
+  checkpointStartedAt: string
+  pullRequest: PullRequestSnapshot
+  task: TaskDefinition
+  verify: VerifyResult
+}
+
+export type PullRequestReviewResult =
+  | {
+      kind: 'approved'
+      review: ReviewOutput
+    }
+  | {
+      kind: 'pending'
+    }
+  | {
+      kind: 'rejected'
+      review: ReviewOutput
+    }
+
+export interface RemoteReviewerProvider {
+  evaluatePullRequestReview: (
+    input: PullRequestReviewInput,
+  ) => Promise<PullRequestReviewResult>
+  readonly name: string
+}
+
 export interface WorkflowRoleProviders {
   implementer: ImplementerProvider
-  reviewer: ReviewerProvider
+  reviewer: RemoteReviewerProvider | ReviewerProvider
 }

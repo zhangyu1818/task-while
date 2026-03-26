@@ -1,11 +1,27 @@
-import type { ReviewAgentInput, WorkflowRoleProviders } from '../agents/types'
+import type { WorkflowRoleProviders } from '../agents/types'
 import type { OrchestratorRuntime } from '../core/runtime'
-import type { ReviewOutput } from '../types'
+import type {
+  ImplementOutput,
+  ReviewFinding,
+  ReviewOutput,
+  TaskContext,
+  TaskDefinition,
+  VerifyResult,
+} from '../types'
 
-export type WorkflowMode = 'direct'
+export type WorkflowMode = 'direct' | 'pull-request'
 
 export interface ReviewPhaseContext {
-  reviewInput: ReviewAgentInput
+  actualChangedFiles: string[]
+  attempt: number
+  commitMessage: string
+  generation: number
+  implement: ImplementOutput
+  lastFindings: ReviewFinding[]
+  runtime: OrchestratorRuntime
+  task: TaskDefinition
+  taskContext: TaskContext
+  verify: VerifyResult
 }
 
 export type ReviewPhaseResult =
@@ -24,7 +40,7 @@ export interface IntegratePhaseContext {
   taskId: string
 }
 
-export type IntegratePhaseResult = {
+export interface IntegratePhaseResult {
   kind: 'completed'
   result: {
     commitSha: string
@@ -33,8 +49,8 @@ export type IntegratePhaseResult = {
 }
 
 export interface WorkflowPreset {
-  readonly mode: WorkflowMode
   integrate: (context: IntegratePhaseContext) => Promise<IntegratePhaseResult>
+  readonly mode: WorkflowMode
   review: (context: ReviewPhaseContext) => Promise<ReviewPhaseResult>
 }
 
@@ -44,3 +60,4 @@ export interface WorkflowRuntime {
 }
 
 export { createDirectWorkflowPreset } from './direct-preset'
+export { createPullRequestWorkflowPreset } from './pull-request-preset'

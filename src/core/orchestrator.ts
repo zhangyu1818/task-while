@@ -1,38 +1,16 @@
 import {
   alignStateWithGraph,
   createInitialWorkflowState,
-  recordCommitFailure,
-  recordImplementFailure,
-  recordImplementSuccess,
-  recordIntegrateResult,
-  recordReviewApproved,
-  recordReviewFailure,
-  recordReviewResult,
-  recordVerifyFailure,
-  recordVerifyResult,
   selectNextRunnableTask,
-  startAttempt,
 } from './engine'
-import { shouldPassZeroGate } from './engine-helpers'
-import {
-  appendEvent,
-  createTaskCommitMessage,
-  now,
-  persistCommittedArtifacts,
-  persistState,
-} from './orchestrator-helpers'
+import { appendEvent, now, persistState } from './orchestrator-helpers'
+import { resumePullRequestIntegrate } from './orchestrator-integrate-resume'
+import { resumePullRequestReview } from './orchestrator-review-resume'
+import { executeTaskAttempt } from './orchestrator-task-attempt'
 
-import type {
-  FinalReport,
-  ImplementArtifact,
-  IntegrateArtifact,
-  ReviewArtifact,
-  TaskGraph,
-  VerifyArtifact,
-  WorkflowState,
-} from '../types'
-import type { OrchestratorRuntime } from './runtime'
+import type { FinalReport, TaskGraph, WorkflowState } from '../types'
 import type { WorkflowRuntime } from '../workflow/preset'
+import type { OrchestratorRuntime } from './runtime'
 
 export async function runWorkflow(input: {
   graph: TaskGraph
@@ -46,6 +24,10 @@ export async function runWorkflow(input: {
     input.graph,
     (await input.runtime.store.loadState()) ??
       createInitialWorkflowState(input.graph),
+    {
+      preserveRunningIntegrate: input.workflow.preset.mode === 'pull-request',
+      preserveRunningReview: input.workflow.preset.mode === 'pull-request',
+    },
   )
   let report = await persistState(input.runtime, input.graph, state)
 
@@ -63,262 +45,44 @@ export async function runWorkflow(input: {
       break
     }
 
+    const resumedIntegrate = await resumePullRequestIntegrate({
+      graph: input.graph,
+      runtime: input.runtime,
+      state,
+      workflow,
+    })
+    if (resumedIntegrate) {
+      report = resumedIntegrate.report
+      state = resumedIntegrate.state
+      continue
+    }
+
+    const resumedReview = await resumePullRequestReview({
+      graph: input.graph,
+      runtime: input.runtime,
+      state,
+      workflow,
+    })
+    if (resumedReview) {
+      report = resumedReview.report
+      state = resumedReview.state
+      continue
+    }
+
     const task = selectNextRunnableTask(input.graph, state)
     if (!task) {
       break
     }
 
-    state = startAttempt(input.graph, state, task.id)
-    await appendEvent(input.runtime, {
-      attempt: state.tasks[task.id]!.attempt,
-      generation: state.tasks[task.id]!.generation,
-      taskId: task.id,
-      timestamp: now(),
-      type: 'attempt_started',
+    const next = await executeTaskAttempt({
+      graph: input.graph,
+      runtime: input.runtime,
+      state,
+      task,
+      workflow,
     })
-    report = await persistState(input.runtime, input.graph, state)
-
-    const taskState = state.tasks[task.id]!
-    const taskContext = await input.runtime.workspace.loadTaskContext(task)
-    let implementArtifact: ImplementArtifact | null = null
-    let verifyArtifact: null | VerifyArtifact = null
-    let reviewArtifact: null | ReviewArtifact = null
-
-    let implement
-    try {
-      implement = await workflow.roles.implementer.implement({
-        attempt: taskState.attempt,
-        codeContext: taskContext.codeContext,
-        generation: taskState.generation,
-        lastFindings: taskState.lastFindings,
-        plan: taskContext.plan,
-        spec: taskContext.spec,
-        task,
-        tasksSnippet: taskContext.tasksSnippet,
-      })
-      if (implement.taskId !== task.id) {
-        throw new Error(
-          `Implement taskId mismatch: expected ${task.id}, received ${implement.taskId}`,
-        )
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      state = recordImplementFailure(input.graph, state, task.id, reason)
-      await appendEvent(input.runtime, {
-        attempt: taskState.attempt,
-        detail: reason,
-        generation: taskState.generation,
-        taskId: task.id,
-        timestamp: now(),
-        type: 'implement_failed',
-      })
-      report = await persistState(input.runtime, input.graph, state)
-      continue
-    }
-
-    implementArtifact = {
-      attempt: taskState.attempt,
-      createdAt: now(),
-      generation: taskState.generation,
-      result: implement,
-      taskId: task.id,
-    }
-    await input.runtime.store.saveImplementArtifact(implementArtifact)
-    state = recordImplementSuccess(state, task.id)
-    await appendEvent(input.runtime, {
-      attempt: taskState.attempt,
-      generation: taskState.generation,
-      taskId: task.id,
-      timestamp: now(),
-      type: 'implement_succeeded',
-    })
-    await appendEvent(input.runtime, {
-      attempt: taskState.attempt,
-      generation: taskState.generation,
-      taskId: task.id,
-      timestamp: now(),
-      type: 'verify_started',
-    })
-    report = await persistState(input.runtime, input.graph, state)
-
-    let verify
-    try {
-      verify = await input.runtime.verifier.verify({
-        commands: task.verifyCommands,
-        taskId: task.id,
-      })
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      state = recordVerifyFailure(input.graph, state, task.id, reason)
-      await appendEvent(input.runtime, {
-        attempt: taskState.attempt,
-        detail: reason,
-        generation: taskState.generation,
-        taskId: task.id,
-        timestamp: now(),
-        type: 'verify_failed',
-      })
-      report = await persistState(input.runtime, input.graph, state)
-      continue
-    }
-
-    verifyArtifact = {
-      attempt: taskState.attempt,
-      createdAt: now(),
-      generation: taskState.generation,
-      result: verify,
-      taskId: task.id,
-    }
-    await input.runtime.store.saveVerifyArtifact(verifyArtifact)
-    state = recordVerifyResult(state, task.id, verify)
-    await appendEvent(input.runtime, {
-      attempt: taskState.attempt,
-      detail: verify.summary,
-      generation: taskState.generation,
-      taskId: task.id,
-      timestamp: now(),
-      type: 'verify_completed',
-    })
-    await appendEvent(input.runtime, {
-      attempt: taskState.attempt,
-      generation: taskState.generation,
-      taskId: task.id,
-      timestamp: now(),
-      type: 'review_started',
-    })
-    report = await persistState(input.runtime, input.graph, state)
-
-    const actualChangedFiles =
-      await input.runtime.git.getChangedFilesSinceHead()
-
-    let review
-    let reviewPhaseKind: 'approved' | 'rejected'
-    try {
-      const reviewPhase = await workflow.preset.review({
-        reviewInput: {
-          actualChangedFiles,
-          attempt: taskState.attempt,
-          generation: taskState.generation,
-          implement,
-          lastFindings: taskState.lastFindings,
-          plan: taskContext.plan,
-          spec: taskContext.spec,
-          task,
-          tasksSnippet: taskContext.tasksSnippet,
-          verify,
-        },
-      })
-      reviewPhaseKind = reviewPhase.kind
-      review = reviewPhase.review
-      if (review.taskId !== task.id) {
-        throw new Error(
-          `Review taskId mismatch: expected ${task.id}, received ${review.taskId}`,
-        )
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      state = recordReviewFailure(input.graph, state, task.id, reason)
-      await appendEvent(input.runtime, {
-        attempt: taskState.attempt,
-        detail: reason,
-        generation: taskState.generation,
-        taskId: task.id,
-        timestamp: now(),
-        type: 'review_failed',
-      })
-      report = await persistState(input.runtime, input.graph, state)
-      continue
-    }
-
-    reviewArtifact = {
-      attempt: taskState.attempt,
-      createdAt: now(),
-      generation: taskState.generation,
-      result: review,
-      taskId: task.id,
-    }
-    await input.runtime.store.saveReviewArtifact(reviewArtifact)
-    await appendEvent(input.runtime, {
-      attempt: taskState.attempt,
-      detail: review.summary,
-      generation: taskState.generation,
-      taskId: task.id,
-      timestamp: now(),
-      type: 'review_completed',
-    })
-
-    if (
-      reviewPhaseKind === 'approved' &&
-      shouldPassZeroGate({ review, verify })
-    ) {
-      state = recordReviewApproved(state, task.id, review)
-      await appendEvent(input.runtime, {
-        attempt: taskState.attempt,
-        generation: taskState.generation,
-        taskId: task.id,
-        timestamp: now(),
-        type: 'integrate_started',
-      })
-      report = await persistState(input.runtime, input.graph, state)
-
-      let integrateResult
-      try {
-        integrateResult = await workflow.preset.integrate({
-          commitMessage: createTaskCommitMessage(task.id, task.title),
-          runtime: input.runtime,
-          taskId: task.id,
-        })
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error)
-        state = recordCommitFailure(input.graph, state, task.id, reason)
-        await appendEvent(input.runtime, {
-          attempt: taskState.attempt,
-          detail: reason,
-          generation: taskState.generation,
-          taskId: task.id,
-          timestamp: now(),
-          type: 'integrate_failed',
-        })
-        report = await persistState(input.runtime, input.graph, state)
-        continue
-      }
-
-      const integrateArtifact: IntegrateArtifact = {
-        attempt: taskState.attempt,
-        createdAt: now(),
-        generation: taskState.generation,
-        result: integrateResult.result,
-        taskId: task.id,
-      }
-      state = recordIntegrateResult(input.graph, state, task.id, {
-        commitSha: integrateResult.result.commitSha,
-        review,
-        verify,
-      })
-      report = await persistState(input.runtime, input.graph, state)
-      await appendEvent(input.runtime, {
-        attempt: taskState.attempt,
-        detail: integrateResult.result.summary,
-        generation: taskState.generation,
-        taskId: task.id,
-        timestamp: now(),
-        type: 'integrate_completed',
-      })
-      await input.runtime.store.saveIntegrateArtifact(integrateArtifact)
-      await persistCommittedArtifacts(input.runtime, {
-        commitSha: integrateResult.result.commitSha,
-        implementArtifact,
-        reviewArtifact,
-        verifyArtifact,
-      })
-      continue
-    } else {
-      state = recordReviewResult(input.graph, state, task.id, {
-        review,
-        verify,
-      })
-    }
-    report = await persistState(input.runtime, input.graph, state)
+    report = next.report
+    state = next.state
   }
 
   return {
@@ -382,14 +146,14 @@ export async function rewindTask(input: {
     const taskState = nextState.tasks[taskId]!
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
-      detail:
-        taskId === input.taskId
-          ? 'rewound manually'
-          : `invalidated by rewind of ${input.taskId}`,
       generation: taskState.generation,
       taskId,
       timestamp: now(),
       type: taskId === input.taskId ? 'task_rewound' : 'task_invalidated',
+      detail:
+        taskId === input.taskId
+          ? 'rewound manually'
+          : `invalidated by rewind of ${input.taskId}`,
     })
   }
   await persistState(input.runtime, graph, nextState)

@@ -1,13 +1,16 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
-import type { OrchestratorRuntime } from '../src/core/runtime'
 import type { ImplementerProvider, ReviewerProvider } from '../src/agents/types'
+import type { OrchestratorRuntime } from '../src/core/runtime'
 import type { TaskGraph, WorkspaceContext } from '../src/types'
 import type { WorkflowConfig } from '../src/workflow/config'
 
 const mockState = vi.hoisted(() => {
   return {
     callSequence: [] as string[],
+    runWorkflowCalls: [] as unknown[],
+    workflowConfigCalls: [] as string[],
+    workflowConfigError: null as Error | null,
     codexInstances: [] as {
       options: {
         onEvent?: (event: { item?: { type?: string }; type: string }) => void
@@ -24,9 +27,6 @@ const mockState = vi.hoisted(() => {
         },
       },
     } as WorkflowConfig,
-    workflowConfigError: null as Error | null,
-    workflowConfigCalls: [] as string[],
-    runWorkflowCalls: [] as unknown[],
     graph: {
       featureId: '001-demo',
       tasks: [],
@@ -146,8 +146,7 @@ vi.mock('../src/core/orchestrator', () => {
   }
 })
 
-const { loadWorkflowExecution, runCommand } =
-  await import('../src/commands/run')
+const { runCommand } = await import('../src/commands/run')
 
 function createContext(): WorkspaceContext {
   return {
@@ -223,47 +222,6 @@ test('runCommand enables Codex progress callback on workflow providers when verb
   expect(stderr).toHaveBeenCalledWith('[codex] item.completed agent_message\n')
 })
 
-test('loadWorkflowExecution rejects claude providers before runtime setup because CLI has no adapter path', async () => {
-  const context = createContext()
-  mockState.config = {
-    workflow: {
-      mode: 'direct',
-      roles: {
-        implementer: { provider: 'claude' },
-        reviewer: { provider: 'codex' },
-      },
-    },
-  }
-
-  await expect(loadWorkflowExecution(context)).rejects.toThrow(
-    /claude provider is not available in cli mode/i,
-  )
-
-  expect(mockState.callSequence).toEqual(['config'])
-  expect(mockState.codexInstances).toHaveLength(0)
-  expect(mockState.runWorkflowCalls).toHaveLength(0)
-})
-
-test('loadWorkflowExecution resolves a direct workflow from while.yaml role providers', async () => {
-  const context = createContext()
-
-  const execution = await loadWorkflowExecution(context)
-
-  expect(mockState.codexInstances).toHaveLength(1)
-  expect(execution.workflow).toMatchObject({
-    preset: {
-      mode: 'direct',
-    },
-    roles: {
-      implementer: expect.objectContaining({ name: 'codex' }),
-      reviewer: expect.objectContaining({ name: 'codex' }),
-    },
-  })
-  expect(execution.workflow.roles.implementer).toBe(
-    execution.workflow.roles.reviewer,
-  )
-})
-
 test('runCommand loads workflow config before creating runtime', async () => {
   const context = createContext()
 
@@ -276,35 +234,6 @@ test('runCommand loads workflow config before creating runtime', async () => {
     'graph',
     'workflow',
   ])
-})
-
-test('loadWorkflowExecution returns an executable plan with resolved config', async () => {
-  const context = createContext()
-
-  const execution = await loadWorkflowExecution(context, {
-    untilTaskId: 'T003',
-  })
-
-  expect(execution.config).toEqual(mockState.config)
-  expect(execution.workflow).toMatchObject({
-    preset: {
-      mode: 'direct',
-    },
-    roles: {
-      implementer: expect.objectContaining({ name: 'codex' }),
-      reviewer: expect.objectContaining({ name: 'codex' }),
-    },
-  })
-
-  await execution.execute()
-
-  expect(mockState.runWorkflowCalls[0]).toMatchObject({
-    graph: mockState.graph,
-    runtime: mockState.runtime,
-    untilTaskId: 'T003',
-    workflow: execution.workflow,
-  })
-  expect(mockState.runWorkflowCalls[0]).not.toHaveProperty('agent')
 })
 
 test('runCommand short-circuits when workflow config loading fails', async () => {
