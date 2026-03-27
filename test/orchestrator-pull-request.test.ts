@@ -16,6 +16,7 @@ import type { WorkflowRuntime } from '../src/workflow/preset'
 test('runWorkflow resumes a running pull-request review without re-running implement', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 5,
     tasks: [createGraph().tasks[0]!],
   }
   const { runtime, store } = createRuntime()
@@ -32,7 +33,7 @@ test('runWorkflow resumes a running pull-request review without re-running imple
     reviewThreads: [],
   }))
   store.state = {
-    currentTaskId: 'T001',
+    currentTaskHandle: 'T001',
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -50,7 +51,7 @@ test('runWorkflow resumes a running pull-request review without re-running imple
     createdAt: '2026-03-25T08:00:00.000Z',
     generation: 1,
     result: createImplement('T001', 'src/greeting.ts'),
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   const implement = vi.fn(async () => {
@@ -62,7 +63,7 @@ test('runWorkflow resumes a running pull-request review without re-running imple
       findings: [],
       overallRisk: 'low' as const,
       summary: 'approved remotely',
-      taskId: 'T001',
+      taskHandle: 'T001',
       verdict: 'pass' as const,
       acceptanceChecks: [
         {
@@ -112,7 +113,8 @@ test('runWorkflow resumes a running pull-request review without re-running imple
   expect(review).toHaveBeenCalledWith(
     expect.objectContaining({
       attempt: 1,
-      generation: 1,
+      completionCriteria: ['Implement greeting'],
+      taskHandle: 'T001',
     }),
   )
   expect(integrate).toHaveBeenCalledTimes(1)
@@ -123,13 +125,10 @@ test('runWorkflow resumes a running pull-request review without re-running imple
 })
 
 test('runWorkflow resumes a running pull-request review and records rejected feedback without re-running implement', async () => {
-  const task = {
-    ...createGraph().tasks[0]!,
-    maxAttempts: 1,
-  }
   const graph = {
     featureId: '001-demo',
-    tasks: [task],
+    maxIterations: 1,
+    tasks: [createGraph().tasks[0]!],
   }
   const { runtime, store } = createRuntime()
   runtime.github.findOpenPullRequestByHeadBranch = vi.fn(async () => ({
@@ -145,7 +144,7 @@ test('runWorkflow resumes a running pull-request review and records rejected fee
     reviewThreads: [],
   }))
   store.state = {
-    currentTaskId: 'T001',
+    currentTaskHandle: 'T001',
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -163,7 +162,7 @@ test('runWorkflow resumes a running pull-request review and records rejected fee
     createdAt: '2026-03-25T08:00:00.000Z',
     generation: 1,
     result: createImplement('T001', 'src/greeting.ts'),
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   const implement = vi.fn(async () => {
@@ -174,7 +173,7 @@ test('runWorkflow resumes a running pull-request review and records rejected fee
     review: {
       overallRisk: 'medium' as const,
       summary: 'handle edge case',
-      taskId: 'T001',
+      taskHandle: 'T001',
       verdict: 'rework' as const,
       acceptanceChecks: [
         {
@@ -230,7 +229,7 @@ test('runWorkflow resumes a running pull-request review and records rejected fee
   expect(implement).not.toHaveBeenCalled()
   expect(review).toHaveBeenCalledTimes(1)
   expect(integrate).not.toHaveBeenCalled()
-  expect(result.state.currentTaskId).toBeNull()
+  expect(result.state.currentTaskHandle).toBeNull()
   expect(result.state.tasks.T001).toMatchObject({
     lastReviewVerdict: 'rework',
     reason: 'handle edge case',

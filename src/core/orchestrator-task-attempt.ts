@@ -11,7 +11,6 @@ import {
 import { shouldPassZeroGate } from './engine-helpers'
 import {
   appendEvent,
-  createTaskCommitMessage,
   now,
   persistCommittedArtifacts,
   persistState,
@@ -20,12 +19,8 @@ import {
 import type {
   FinalReport,
   ImplementArtifact,
-  ImplementOutput,
   IntegrateArtifact,
   ReviewArtifact,
-  ReviewFinding,
-  TaskContext,
-  TaskDefinition,
   TaskGraph,
   WorkflowState,
 } from '../types'
@@ -36,7 +31,7 @@ export interface ExecuteTaskAttemptInput {
   graph: TaskGraph
   runtime: OrchestratorRuntime
   state: WorkflowState
-  task: TaskDefinition
+  taskHandle: string
   workflow: WorkflowRuntime
 }
 
@@ -45,58 +40,51 @@ export interface ExecuteTaskAttemptResult {
   state: WorkflowState
 }
 
-interface TaskAttemptReviewInput {
-  attempt: number
-  commitMessage: string
-  generation: number
-  implement: ImplementOutput
-  lastFindings: ReviewFinding[]
-  runtime: OrchestratorRuntime
-  task: TaskDefinition
-  taskContext: TaskContext
-}
-
 export async function executeTaskAttempt(
   input: ExecuteTaskAttemptInput,
 ): Promise<ExecuteTaskAttemptResult> {
-  let state = startAttempt(input.graph, input.state, input.task.id)
+  let state = startAttempt(input.graph, input.state, input.taskHandle)
   await appendEvent(input.runtime, {
-    attempt: state.tasks[input.task.id]!.attempt,
-    generation: state.tasks[input.task.id]!.generation,
-    taskId: input.task.id,
+    attempt: state.tasks[input.taskHandle]!.attempt,
+    generation: state.tasks[input.taskHandle]!.generation,
+    taskHandle: input.taskHandle,
     timestamp: now(),
     type: 'attempt_started',
   })
   let report = await persistState(input.runtime, input.graph, state)
-  const taskState = state.tasks[input.task.id]!
-  const taskContext = await input.runtime.workspace.loadTaskContext(input.task)
-  const commitMessage = createTaskCommitMessage(input.task.id, input.task.title)
+  const taskState = state.tasks[input.taskHandle]!
+  const taskHandle = input.taskHandle
+  const commitMessage = input.runtime.taskSource.buildCommitSubject(taskHandle)
   let implementArtifact: ImplementArtifact | null = null
   let reviewArtifact: null | ReviewArtifact = null
   let implement
   try {
+    const prompt = await input.runtime.taskSource.buildImplementPrompt({
+      attempt: taskState.attempt,
+      generation: taskState.generation,
+      lastFindings: taskState.lastFindings,
+      taskHandle,
+    })
     implement = await input.workflow.roles.implementer.implement({
       attempt: taskState.attempt,
       generation: taskState.generation,
       lastFindings: taskState.lastFindings,
-      plan: taskContext.plan,
-      spec: taskContext.spec,
-      task: input.task,
-      tasksSnippet: taskContext.tasksSnippet,
+      prompt,
+      taskHandle,
     })
-    if (implement.taskId !== input.task.id) {
+    if (implement.taskHandle !== taskHandle) {
       throw new Error(
-        `Implement taskId mismatch: expected ${input.task.id}, received ${implement.taskId}`,
+        `Implement taskHandle mismatch: expected ${taskHandle}, received ${implement.taskHandle}`,
       )
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
-    state = recordImplementFailure(input.graph, state, input.task.id, reason)
+    state = recordImplementFailure(input.graph, state, input.taskHandle, reason)
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
       detail: reason,
       generation: taskState.generation,
-      taskId: input.task.id,
+      taskHandle: input.taskHandle,
       timestamp: now(),
       type: 'implement_failed',
     })
@@ -108,21 +96,21 @@ export async function executeTaskAttempt(
     createdAt: now(),
     generation: taskState.generation,
     result: implement,
-    taskId: input.task.id,
+    taskHandle,
   }
   await input.runtime.store.saveImplementArtifact(implementArtifact)
-  state = recordImplementSuccess(state, input.task.id)
+  state = recordImplementSuccess(state, input.taskHandle)
   await appendEvent(input.runtime, {
     attempt: taskState.attempt,
     generation: taskState.generation,
-    taskId: input.task.id,
+    taskHandle: input.taskHandle,
     timestamp: now(),
     type: 'implement_succeeded',
   })
   await appendEvent(input.runtime, {
     attempt: taskState.attempt,
     generation: taskState.generation,
-    taskId: input.task.id,
+    taskHandle: input.taskHandle,
     timestamp: now(),
     type: 'review_started',
   })
@@ -130,42 +118,54 @@ export async function executeTaskAttempt(
   let review
   let reviewPhaseKind: 'approved' | 'rejected'
   try {
-    const reviewInput: TaskAttemptReviewInput = {
-      attempt: taskState.attempt,
-      commitMessage,
-      generation: taskState.generation,
-      implement,
-      lastFindings: taskState.lastFindings,
-      runtime: input.runtime,
-      task: input.task,
-      taskContext,
-    }
     let reviewPhase: ReviewPhaseResult
     if (input.workflow.preset.mode === 'direct') {
       const actualChangedFiles =
         await input.runtime.git.getChangedFilesSinceHead()
-      reviewPhase = await input.workflow.preset.review({
-        ...reviewInput,
+      const prompt = await input.runtime.taskSource.buildReviewPrompt({
         actualChangedFiles,
+        attempt: taskState.attempt,
+        generation: taskState.generation,
+        implement,
+        lastFindings: taskState.lastFindings,
+        taskHandle,
+      })
+      reviewPhase = await input.workflow.preset.review({
+        actualChangedFiles,
+        attempt: taskState.attempt,
+        commitMessage,
+        generation: taskState.generation,
+        implement,
+        lastFindings: taskState.lastFindings,
+        prompt,
+        taskHandle,
       })
     } else {
-      reviewPhase = await input.workflow.preset.review(reviewInput)
+      const completionCriteria =
+        await input.runtime.taskSource.getCompletionCriteria(taskHandle)
+      reviewPhase = await input.workflow.preset.review({
+        attempt: taskState.attempt,
+        commitMessage,
+        completionCriteria,
+        runtime: input.runtime,
+        taskHandle,
+      })
     }
     reviewPhaseKind = reviewPhase.kind
     review = reviewPhase.review
-    if (review.taskId !== input.task.id) {
+    if (review.taskHandle !== taskHandle) {
       throw new Error(
-        `Review taskId mismatch: expected ${input.task.id}, received ${review.taskId}`,
+        `Review taskHandle mismatch: expected ${taskHandle}, received ${review.taskHandle}`,
       )
     }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
-    state = recordReviewFailure(input.graph, state, input.task.id, reason)
+    state = recordReviewFailure(input.graph, state, input.taskHandle, reason)
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
       detail: reason,
       generation: taskState.generation,
-      taskId: input.task.id,
+      taskHandle: input.taskHandle,
       timestamp: now(),
       type: 'review_failed',
     })
@@ -177,24 +177,24 @@ export async function executeTaskAttempt(
     createdAt: now(),
     generation: taskState.generation,
     result: review,
-    taskId: input.task.id,
+    taskHandle,
   }
   await input.runtime.store.saveReviewArtifact(reviewArtifact)
   await appendEvent(input.runtime, {
     attempt: taskState.attempt,
     detail: review.summary,
     generation: taskState.generation,
-    taskId: input.task.id,
+    taskHandle: input.taskHandle,
     timestamp: now(),
     type: 'review_completed',
   })
 
   if (reviewPhaseKind === 'approved' && shouldPassZeroGate({ review })) {
-    state = recordReviewApproved(state, input.task.id, review)
+    state = recordReviewApproved(state, input.taskHandle, review)
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
       generation: taskState.generation,
-      taskId: input.task.id,
+      taskHandle: input.taskHandle,
       timestamp: now(),
       type: 'integrate_started',
     })
@@ -205,16 +205,16 @@ export async function executeTaskAttempt(
       integrateResult = await input.workflow.preset.integrate({
         commitMessage,
         runtime: input.runtime,
-        taskId: input.task.id,
+        taskHandle,
       })
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
-      state = recordCommitFailure(input.graph, state, input.task.id, reason)
+      state = recordCommitFailure(input.graph, state, input.taskHandle, reason)
       await appendEvent(input.runtime, {
         attempt: taskState.attempt,
         detail: reason,
         generation: taskState.generation,
-        taskId: input.task.id,
+        taskHandle: input.taskHandle,
         timestamp: now(),
         type: 'integrate_failed',
       })
@@ -226,9 +226,9 @@ export async function executeTaskAttempt(
       createdAt: now(),
       generation: taskState.generation,
       result: integrateResult.result,
-      taskId: input.task.id,
+      taskHandle,
     }
-    state = recordIntegrateResult(input.graph, state, input.task.id, {
+    state = recordIntegrateResult(input.graph, state, taskHandle, {
       commitSha: integrateResult.result.commitSha,
       review,
     })
@@ -237,7 +237,7 @@ export async function executeTaskAttempt(
       attempt: taskState.attempt,
       detail: integrateResult.result.summary,
       generation: taskState.generation,
-      taskId: input.task.id,
+      taskHandle: input.taskHandle,
       timestamp: now(),
       type: 'integrate_completed',
     })
@@ -249,7 +249,7 @@ export async function executeTaskAttempt(
     })
     return { report, state }
   }
-  state = recordReviewResult(input.graph, state, input.task.id, {
+  state = recordReviewResult(input.graph, state, input.taskHandle, {
     review,
   })
   report = await persistState(input.runtime, input.graph, state)

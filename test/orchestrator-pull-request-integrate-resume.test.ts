@@ -17,11 +17,12 @@ import type { WorkflowRuntime } from '../src/workflow/preset'
 test('runWorkflow resumes a running pull-request integrate after restart without re-running implement or review', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 5,
     tasks: [createGraph().tasks[0]!],
   }
   const { runtime, store } = createRuntime()
   store.state = {
-    currentTaskId: 'T001',
+    currentTaskHandle: 'T001',
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -40,14 +41,14 @@ test('runWorkflow resumes a running pull-request integrate after restart without
     createdAt: '2026-03-25T08:00:00.000Z',
     generation: 1,
     result: createImplement('T001', 'src/greeting.ts'),
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
   await store.saveReviewArtifact({
     attempt: 1,
     createdAt: '2026-03-25T08:02:00.000Z',
     generation: 1,
     result: createReview('T001', 'buildGreeting works'),
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   const implement = vi.fn(async () => {

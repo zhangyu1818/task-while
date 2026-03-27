@@ -110,8 +110,9 @@ async function waitForRemoteReview(
     })
     return input.reviewer.evaluatePullRequestReview({
       checkpointStartedAt: input.checkpointStartedAt,
+      completionCriteria: input.context.completionCriteria,
       pullRequest: snapshot,
-      task: input.context.task,
+      taskHandle: input.context.taskHandle,
     })
   }
 
@@ -207,14 +208,14 @@ export function createPullRequestWorkflowPreset(
           restoreFromRemote: true,
           runtime: context.runtime,
         })
-        const taskChecked = await context.runtime.workspace.isTaskChecked(
-          context.taskId,
+        const taskChecked = await context.runtime.taskSource.isTaskCompleted(
+          context.taskHandle,
         )
         if (!taskChecked) {
           await finalizeTaskCheckbox({
             commitMessage: context.commitMessage,
             runtime: context.runtime,
-            taskId: context.taskId,
+            taskHandle: context.taskHandle,
           })
         }
         await context.runtime.git.pushBranch(branchName)

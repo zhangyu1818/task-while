@@ -24,7 +24,8 @@ test('codex remote reviewer approves when the latest thumbs-up wins', async () =
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reactions: [
         {
@@ -66,7 +67,8 @@ test('codex remote reviewer ignores stale thumbs-up from a previous attempt on t
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:02:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reactions: [
         {
@@ -89,7 +91,8 @@ test('codex remote reviewer rejects when active feedback is newer than approval'
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reactions: [
         {
@@ -131,7 +134,8 @@ test('codex remote reviewer upgrades changes requested feedback to high risk', a
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reviewSummaries: [
         {
@@ -165,7 +169,8 @@ test('codex remote reviewer ignores resolved and outdated thread comments', asyn
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reviewThreads: [
         {
@@ -213,7 +218,8 @@ test('codex remote reviewer only keeps the latest active comment from each threa
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reviewThreads: [
         {

@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
 import { CodexAgentClient, type CodexClientLike } from '../src/agents/codex'
+import { createTaskPrompt } from './task-source-test-helpers'
 
 const mockState = vi.hoisted(() => {
   return {
@@ -45,7 +46,7 @@ test('CodexAgentClient passes workspaceRoot and structured output schema to SDK 
               notes: [],
               status: 'implemented',
               summary: 'done',
-              taskId: 'T001',
+              taskHandle: 'T001',
               unresolvedItems: [],
             }),
           }
@@ -62,26 +63,20 @@ test('CodexAgentClient passes workspaceRoot and structured output schema to SDK 
     attempt: 1,
     generation: 1,
     lastFindings: [],
-    plan: '# plan',
-    spec: '# spec',
-    tasksSnippet: '- [ ] T001 Create parser',
-    task: {
-      id: 'T001',
-      acceptance: ['parser exists'],
-      dependsOn: [],
-      maxAttempts: 2,
-      parallelizable: false,
-      phase: 'Phase 1',
-      reviewRubric: ['naming clarity'],
+    taskHandle: 'T001',
+    prompt: createTaskPrompt({
+      completionCriteria: ['parser exists'],
+      taskHandle: 'T001',
+      tasksSnippet: '- [ ] T001 Create parser',
       title: 'Create parser',
-    },
+    }),
   })
 
   expect(mockState.constructorCalls).toBe(1)
   expect(receivedWorkingDirectory).toBe('/tmp/project')
   expect(receivedPrompt).toMatch(/Create parser/)
-  expect(receivedSchema?.required).toContain('taskId')
-  expect(result.taskId).toBe('T001')
+  expect(receivedSchema?.required).toContain('taskHandle')
+  expect(result.taskHandle).toBe('T001')
 })
 
 test('CodexAgentClient creates a fresh thread for each role invocation', async () => {
@@ -103,7 +98,7 @@ test('CodexAgentClient creates a fresh thread for each role invocation', async (
                     findings: [],
                     overallRisk: 'low',
                     summary: 'ok',
-                    taskId: 'T001',
+                    taskHandle: 'T001',
                     verdict: 'pass',
                     acceptanceChecks: [
                       {
@@ -119,7 +114,7 @@ test('CodexAgentClient creates a fresh thread for each role invocation', async (
                     notes: [],
                     status: 'implemented',
                     summary: 'ok',
-                    taskId: 'T001',
+                    taskHandle: 'T001',
                     unresolvedItems: [],
                   },
             ),
@@ -137,46 +132,24 @@ test('CodexAgentClient creates a fresh thread for each role invocation', async (
     attempt: 1,
     generation: 1,
     lastFindings: [],
-    plan: '# plan',
-    spec: '# spec',
-    tasksSnippet: '- [ ] T001 Do work',
-    task: {
-      id: 'T001',
-      acceptance: ['works'],
-      dependsOn: [],
-      maxAttempts: 2,
-      parallelizable: false,
-      phase: 'Core',
-      reviewRubric: ['clear'],
-      title: 'Do work',
-    },
+    prompt: createTaskPrompt(),
+    taskHandle: 'T001',
   })
   await client.review({
     actualChangedFiles: ['src/a.ts'],
     attempt: 1,
     generation: 1,
     lastFindings: [],
-    plan: '# plan',
-    spec: '# spec',
-    tasksSnippet: '- [ ] T001 Do work',
+    prompt: createTaskPrompt(),
+    taskHandle: 'T001',
     implement: {
       assumptions: [],
       needsHumanAttention: false,
       notes: [],
       status: 'implemented',
       summary: 'ok',
-      taskId: 'T001',
+      taskHandle: 'T001',
       unresolvedItems: [],
-    },
-    task: {
-      id: 'T001',
-      acceptance: ['works'],
-      dependsOn: [],
-      maxAttempts: 2,
-      parallelizable: false,
-      phase: 'Core',
-      reviewRubric: ['clear'],
-      title: 'Do work',
     },
   })
 

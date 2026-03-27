@@ -1,10 +1,9 @@
+import type { TaskSourceSession } from '../task-sources/types'
 import type {
   FinalReport,
   ImplementArtifact,
   IntegrateArtifact,
   ReviewArtifact,
-  TaskContext,
-  TaskDefinition,
   TaskGraph,
   WorkflowEvent,
   WorkflowState,
@@ -13,7 +12,7 @@ import type {
 export interface AttemptArtifactKey {
   attempt: number
   generation: number
-  taskId: string
+  taskHandle: string
 }
 
 export interface WorkflowStore {
@@ -34,17 +33,6 @@ export interface WorkflowStore {
   saveReport: (report: FinalReport) => Promise<void>
   saveReviewArtifact: (artifact: ReviewArtifact) => Promise<void>
   saveState: (state: WorkflowState) => Promise<void>
-}
-
-export interface WorkspacePort {
-  isTaskChecked: (taskId: string) => Promise<boolean>
-  loadTaskContext: (task: TaskDefinition) => Promise<TaskContext>
-  updateTaskChecks: (updates: WorkspaceTaskCheckUpdate[]) => Promise<void>
-}
-
-export interface WorkspaceTaskCheckUpdate {
-  checked: boolean
-  taskId: string
 }
 
 export interface GitCheckoutBranchOptions {
@@ -186,5 +174,5 @@ export interface OrchestratorRuntime {
   git: GitPort
   github: GitHubPort
   store: WorkflowStore
-  workspace: WorkspacePort
+  taskSource: TaskSourceSession
 }

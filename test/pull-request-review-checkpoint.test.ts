@@ -2,16 +2,14 @@ import { expect, test, vi } from 'vitest'
 
 import { createPullRequestWorkflowPreset } from '../src/workflow/pull-request-preset'
 import {
-  createGraph,
-  createImplement,
-  createReview,
-} from './workflow-test-helpers'
+  createGitHubPortStub,
+  createGitPortStub,
+  createOrchestratorRuntimeStub,
+} from './orchestrator-runtime-test-helpers'
+import { createGraph, createReview } from './workflow-test-helpers'
 
 import type { RemoteReviewerProvider } from '../src/agents/types'
-import type {
-  OrchestratorRuntime,
-  PullRequestSnapshot,
-} from '../src/core/runtime'
+import type { PullRequestSnapshot } from '../src/core/runtime'
 
 function createSnapshot(
   input: Partial<PullRequestSnapshot> = {},
@@ -36,7 +34,7 @@ test('pull-request preset creates a fresh checkpoint commit on the first review 
     })),
   }
   const preset = createPullRequestWorkflowPreset({ reviewer })
-  const git = {
+  const git = createGitPortStub({
     checkoutBranch: vi.fn(async () => {}),
     checkoutRemoteBranch: vi.fn(async () => {}),
     commitTask: vi.fn(async () => ({ commitSha: 'checkpoint-sha' })),
@@ -52,8 +50,8 @@ test('pull-request preset creates a fresh checkpoint commit on the first review 
     pushBranch: vi.fn(async () => {}),
     requireCleanWorktree: vi.fn(async () => {}),
     resetHard: vi.fn(async () => {}),
-  }
-  const github = {
+  })
+  const github = createGitHubPortStub({
     findOpenPullRequestByHeadBranch: vi.fn(async () => null),
     getPullRequestSnapshot: vi.fn(async () => createSnapshot()),
     squashMergePullRequest: vi.fn(async () => ({ commitSha: 'merged-sha' })),
@@ -62,36 +60,18 @@ test('pull-request preset creates a fresh checkpoint commit on the first review 
       title: 'Task T001: Implement greeting',
       url: 'https://example.com/pr/12',
     })),
-  }
-  const workspace = {
-    isTaskChecked: vi.fn(async () => false),
-    updateTaskChecks: vi.fn(async () => {}),
-    loadTaskContext: vi.fn(async () => ({
-      plan: '# plan\n',
-      spec: '# spec\n',
-      tasksSnippet: '- [ ] T001 Implement greeting\n',
-    })),
-  }
-  const runtime = {
+  })
+  const runtime = createOrchestratorRuntimeStub({
     git,
     github,
-    store: {},
-    workspace,
-  } as unknown as OrchestratorRuntime
+  })
 
   const result = await preset.review({
     attempt: 2,
     commitMessage: 'Task T001: Implement greeting',
-    generation: 1,
-    implement: createImplement('T001', 'src/greeting.ts'),
-    lastFindings: [],
+    completionCriteria: ['buildGreeting works'],
     runtime,
-    task,
-    taskContext: {
-      plan: '# plan\n',
-      spec: '# spec\n',
-      tasksSnippet: '- [ ] T001 Implement greeting\n',
-    },
+    taskHandle: task.handle,
   })
 
   expect(result.kind).toBe('approved')
@@ -111,7 +91,7 @@ test('pull-request preset reuses the head checkpoint for the same review attempt
     })),
   }
   const preset = createPullRequestWorkflowPreset({ reviewer })
-  const git = {
+  const git = createGitPortStub({
     checkoutBranch: vi.fn(async () => {}),
     checkoutRemoteBranch: vi.fn(async () => {}),
     commitTask: vi.fn(async () => ({ commitSha: 'checkpoint-sha' })),
@@ -129,8 +109,8 @@ test('pull-request preset reuses the head checkpoint for the same review attempt
     getHeadSubject: vi.fn(
       async () => 'checkpoint: Task T001: Implement greeting (attempt 2)',
     ),
-  }
-  const github = {
+  })
+  const github = createGitHubPortStub({
     getPullRequestSnapshot: vi.fn(async () => createSnapshot()),
     squashMergePullRequest: vi.fn(async () => ({ commitSha: 'merged-sha' })),
     createPullRequest: vi.fn(async () => ({
@@ -143,36 +123,18 @@ test('pull-request preset reuses the head checkpoint for the same review attempt
       title: 'Task T001: Implement greeting',
       url: 'https://example.com/pr/12',
     })),
-  }
-  const workspace = {
-    isTaskChecked: vi.fn(async () => false),
-    updateTaskChecks: vi.fn(async () => {}),
-    loadTaskContext: vi.fn(async () => ({
-      plan: '# plan\n',
-      spec: '# spec\n',
-      tasksSnippet: '- [ ] T001 Implement greeting\n',
-    })),
-  }
-  const runtime = {
+  })
+  const runtime = createOrchestratorRuntimeStub({
     git,
     github,
-    store: {},
-    workspace,
-  } as unknown as OrchestratorRuntime
+  })
 
   const result = await preset.review({
     attempt: 2,
     commitMessage: 'Task T001: Implement greeting',
-    generation: 1,
-    implement: createImplement('T001', 'src/greeting.ts'),
-    lastFindings: [],
+    completionCriteria: ['buildGreeting works'],
     runtime,
-    task,
-    taskContext: {
-      plan: '# plan\n',
-      spec: '# spec\n',
-      tasksSnippet: '- [ ] T001 Implement greeting\n',
-    },
+    taskHandle: task.handle,
   })
 
   expect(result.kind).toBe('approved')

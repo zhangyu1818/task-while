@@ -13,16 +13,12 @@ import {
 test('runWorkflow records review execution failures and blocks when max attempts are exhausted', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
@@ -59,7 +55,7 @@ test('runWorkflow stops after untilTaskId completes and leaves downstream tasks 
   const result = await runWorkflow({
     graph,
     runtime,
-    untilTaskId: 'T001',
+    untilTaskHandle: 'T001',
     workflow: createWorkflow(provider),
   })
 
@@ -67,7 +63,7 @@ test('runWorkflow stops after untilTaskId completes and leaves downstream tasks 
   expect(result.state.tasks.T002).toMatchObject({ status: 'pending' })
   expect(store.implementArtifacts).toHaveLength(1)
   expect(workspace.checkboxUpdates).toEqual([
-    [{ checked: true, taskId: 'T001' }],
+    [{ checked: true, taskHandle: 'T001' }],
   ])
 })
 
@@ -75,7 +71,7 @@ test('runWorkflow returns immediately when untilTaskId is already completed in p
   const graph = createGraph()
   const { runtime, store } = createRuntime()
   store.state = {
-    currentTaskId: null,
+    currentTaskHandle: null,
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -101,7 +97,7 @@ test('runWorkflow returns immediately when untilTaskId is already completed in p
   const result = await runWorkflow({
     graph,
     runtime,
-    untilTaskId: 'T001',
+    untilTaskHandle: 'T001',
     workflow: createWorkflow(provider),
   })
 

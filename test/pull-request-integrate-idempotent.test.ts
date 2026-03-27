@@ -1,12 +1,15 @@
 import { expect, test, vi } from 'vitest'
 
 import { createPullRequestWorkflowPreset } from '../src/workflow/pull-request-preset'
+import {
+  createGitHubPortStub,
+  createGitPortStub,
+  createOrchestratorRuntimeStub,
+  createTaskSourceSessionStub,
+} from './orchestrator-runtime-test-helpers'
 
 import type { RemoteReviewerProvider } from '../src/agents/types'
-import type {
-  OrchestratorRuntime,
-  PullRequestSnapshot,
-} from '../src/core/runtime'
+import type { PullRequestSnapshot } from '../src/core/runtime'
 
 function createSnapshot(
   input: Partial<PullRequestSnapshot> = {},
@@ -34,7 +37,7 @@ test('pull-request integrate treats an already merged pull request as completed 
   const preset = createPullRequestWorkflowPreset({
     reviewer: createUnusedReviewer(),
   })
-  const git = {
+  const git = createGitPortStub({
     checkoutBranch: vi.fn(async () => {}),
     checkoutRemoteBranch: vi.fn(async () => {}),
     commitTask: vi.fn(async () => ({ commitSha: 'finalize-sha' })),
@@ -50,8 +53,8 @@ test('pull-request integrate treats an already merged pull request as completed 
     pushBranch: vi.fn(async () => {}),
     requireCleanWorktree: vi.fn(async () => {}),
     resetHard: vi.fn(async () => {}),
-  }
-  const github = {
+  })
+  const github = createGitHubPortStub({
     findOpenPullRequestByHeadBranch: vi.fn(async () => null),
     getPullRequestSnapshot: vi.fn(async () => createSnapshot()),
     createPullRequest: vi.fn(async () => ({
@@ -68,28 +71,20 @@ test('pull-request integrate treats an already merged pull request as completed 
     squashMergePullRequest: vi.fn(async () => ({
       commitSha: 'should-not-run',
     })),
-  }
-  const workspace = {
-    isTaskChecked: vi.fn(async () => true),
-    updateTaskChecks: vi.fn(async () => {}),
-    loadTaskContext: vi.fn(async () => ({
-      plan: '# plan\n',
-      spec: '# spec\n',
-      tasksSnippet: '- [X] T001 Implement greeting\n',
-    })),
-  }
-  const runtime = {
+  })
+  const taskSource = createTaskSourceSessionStub({
+    isTaskCompleted: vi.fn(async () => true),
+  })
+  const runtime = createOrchestratorRuntimeStub({
     git,
     github,
-    store: {},
-    verifier: {},
-    workspace,
-  } as unknown as OrchestratorRuntime
+    taskSource,
+  })
 
   const result = await preset.integrate({
     commitMessage: 'Task T001: Implement greeting',
     runtime,
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   expect(github.findOpenPullRequestByHeadBranch).toHaveBeenCalledWith({

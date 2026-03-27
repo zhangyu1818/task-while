@@ -2,26 +2,34 @@
 
 ## Overview
 
-`spec-while` is a single-feature, task-by-task orchestrator for Spec Kit workspaces.
+`spec-while` is a single-feature, task-by-task orchestrator built around a task source protocol.
 
 It consumes:
+
+- the `specs/<feature>/...` directory layout
+- the files required by the configured task source
+
+The only public workflow configuration entry is `while.yaml`.
+
+The current built-in task source is `spec-kit`, which consumes:
 
 - `spec.md`
 - `plan.md`
 - `tasks.md`
-- the `specs/<feature>/...` directory layout
-
-The only public workflow configuration entry is `while.yaml`.
 
 It does not execute the Spec Kit command runtime. It does not run Spec Kit hooks, checklists, or skill installations.
 
 ## Workflow Preset
 
-An optional `while.yaml` at the workspace root configures workflow behavior. Public runtime selection is workflow-only and comes from this file.
+An optional `while.yaml` at the workspace root configures task source and workflow behavior.
 
 Current configuration surface:
 
 ```yaml
+task:
+  source: spec-kit
+  maxIterations: 5
+
 workflow:
   mode: direct
   roles:
@@ -33,6 +41,8 @@ workflow:
 
 Current support level:
 
+- `task.source: spec-kit` is the only built-in source today
+- `task.maxIterations` is a global retry budget applied to every task
 - `direct` uses a local reviewer and local integrate
 - `pull-request` uses a remote GitHub PR reviewer and squash merge integrate
 
@@ -57,7 +67,7 @@ Feature resolution order:
 - requires a clean worktree
 - supports `--until-task`
 
-### `spec-while rewind --task <taskId>`
+### `spec-while rewind --task <taskSelector>`
 
 - requires the target task to be `done`
 - requires a clean worktree
@@ -66,27 +76,30 @@ Feature resolution order:
 
 ## Task Graph
 
-`tasks.md` is normalized into a task graph.
+The selected task source exposes task handles and dependencies, and the orchestrator derives a validated task topology from that protocol.
 
-Each task must define:
+For the built-in `spec-kit` source, a valid task is any raw task line matching the generated Spec Kit list format, such as:
 
-- `Acceptance`
-- `Review Rubric`
-- `Max Iterations` or `Max Attempts`
+```md
+- [ ] T001 Implement greeting
+- [ ] T003 [P] Add tests
+- [ ] T010 [P] [US1] Add scenario coverage
+```
 
-Optional fields include:
+The built-in `spec-kit` source:
 
-- `Goal`
-- `Depends`
-- `storyId`
+- preserves task order from `tasks.md`
+- records the nearest `##` heading as the task phase label
+- does not parse enhanced fields like `Depends`, `Acceptance`, `Review Rubric`, `Goal`, or `storyId`
+- exposes no explicit dependencies from raw task lines, so built-in `spec-kit` tasks execute in file order unless later task sources provide dependency data
 
 Validation rejects:
 
-- duplicate task ids
+- duplicate task handles
 - unknown dependencies
 - dependency cycles
-- missing required fields
-- invalid attempt counts
+- missing required task lines
+- invalid global retry counts
 
 ## Agent Contract
 
@@ -97,25 +110,19 @@ The orchestrator uses two agent roles:
 
 Implement receives:
 
-- the current task
 - `generation`
 - `attempt`
 - previous findings
-- `spec`
-- `plan`
-- `tasksSnippet`
+- a task-source-built prompt
 
 Review phase context receives:
 
-- the current task
 - `generation`
 - `attempt`
 - previous findings
-- task context (`spec`, `plan`, `tasksSnippet`)
+- a task-source-built prompt
 - implement result
 - `actualChangedFiles`
-- the computed task commit message
-- runtime ports
 
 ## Workflow Semantics
 
@@ -125,7 +132,7 @@ For each runnable task:
 2. run implement
 3. run review
 4. if review is approved, enter integrate
-5. if integrate succeeds, update `tasks.md`, create a git commit, mark the task as `done`, and record integrate artifacts in `.while`
+5. if integrate succeeds, apply the task source completion marker, create a git commit, mark the task as `done`, and record integrate artifacts in `.while`
 
 The zero gate for completion requires:
 
@@ -140,13 +147,13 @@ The zero gate for completion requires:
 - the task passed implement and review
 - the integrate stage succeeded
 
-Each completed task creates one commit with this message format:
+Each completed task creates one commit with a source-provided subject. For the built-in `spec-kit` source, the format is:
 
 ```text
 Task <taskId>: <task title>
 ```
 
-The commit includes source changes and the updated `tasks.md`.
+The commit includes source changes and the task source completion update.
 
 In `pull-request` mode:
 
@@ -161,7 +168,7 @@ In `pull-request` mode:
 - process restart during review or integrate re-enters the current pull-request stage instead of restarting `implement`
 - if an open PR exists but the local task branch is missing, review/integrate restore the branch from `origin/<branch>`
 - if the PR was already squash-merged before state was persisted, integrate treats the merged PR as already completed and finalizes local cleanup on resume
-- integrate runs on the task branch, updates `tasks.md` when needed, squash-merges to `main`, then deletes the local task branch
+- integrate runs on the task branch, applies the task source completion marker when needed, squash-merges to `main`, then deletes the local task branch
 
 The `.while` directory is excluded from task commits.
 
@@ -178,7 +185,7 @@ After git reset:
 - the explicitly rewound task and every rolled-back task enter a new `generation`
 - `attempt` resets to `0` for those tasks
 
-`tasks.md` checkboxes are restored by git history, not by manual string edits.
+Task source completion markers are restored by git history, not by manual string edits. For the built-in `spec-kit` source, this means `tasks.md` checkboxes.
 
 ## Scope and Verification
 
@@ -200,10 +207,10 @@ The runtime layout includes:
 - `graph.json`
 - `report.json`
 - `events.jsonl`
-- `tasks/<taskId>/g<generation>/a<attempt>/implement.json`
-- `tasks/<taskId>/g<generation>/a<attempt>/review.json`
-- `tasks/<taskId>/g<generation>/a<attempt>/integrate.json`
+- `tasks/<taskHandle>/g<generation>/a<attempt>/implement.json`
+- `tasks/<taskHandle>/g<generation>/a<attempt>/review.json`
+- `tasks/<taskHandle>/g<generation>/a<attempt>/integrate.json`
 
 `.while` is runtime state, not the long-term source of truth.
 
-For pull-request review recovery, the store must be able to reload the persisted `implement` artifact by `taskId + generation + attempt`.
+For pull-request review recovery, the store must be able to reload the persisted `implement` artifact by `taskHandle + generation + attempt`.

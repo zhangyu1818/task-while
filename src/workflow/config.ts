@@ -23,7 +23,7 @@ const workflowRolesSchema = z
 const taskConfigSchema = z
   .object({
     maxIterations: z.number().int().min(1).max(20).default(5),
-    source: z.literal('spec-kit').default('spec-kit'),
+    source: z.string().trim().min(1).default('spec-kit'),
   })
   .strict()
 
@@ -60,7 +60,7 @@ export interface WorkflowSettingsConfig {
 
 export interface TaskSettingsConfig {
   maxIterations: number
-  source: 'spec-kit'
+  source: string
 }
 
 export interface WorkflowConfig {

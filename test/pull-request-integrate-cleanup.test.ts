@@ -1,12 +1,15 @@
 import { expect, test, vi } from 'vitest'
 
 import { createPullRequestWorkflowPreset } from '../src/workflow/pull-request-preset'
+import {
+  createGitHubPortStub,
+  createGitPortStub,
+  createOrchestratorRuntimeStub,
+  createTaskSourceSessionStub,
+} from './orchestrator-runtime-test-helpers'
 
 import type { RemoteReviewerProvider } from '../src/agents/types'
-import type {
-  OrchestratorRuntime,
-  PullRequestSnapshot,
-} from '../src/core/runtime'
+import type { PullRequestSnapshot } from '../src/core/runtime'
 
 function createSnapshot(
   input: Partial<PullRequestSnapshot> = {},
@@ -34,7 +37,7 @@ test('pull-request preset treats local cleanup failures after squash merge as no
   const preset = createPullRequestWorkflowPreset({
     reviewer: createUnusedReviewer(),
   })
-  const git = {
+  const git = createGitPortStub({
     checkoutRemoteBranch: vi.fn(async () => {}),
     commitTask: vi.fn(async () => ({ commitSha: 'finalize-sha' })),
     deleteLocalBranch: vi.fn(async () => {}),
@@ -51,8 +54,8 @@ test('pull-request preset treats local cleanup failures after squash merge as no
     checkoutBranch: vi.fn(async () => {
       throw new Error('checkout main failed')
     }),
-  }
-  const github = {
+  })
+  const github = createGitHubPortStub({
     getPullRequestSnapshot: vi.fn(async () => createSnapshot()),
     squashMergePullRequest: vi.fn(async () => ({ commitSha: 'merged-sha' })),
     createPullRequest: vi.fn(async () => ({
@@ -65,28 +68,22 @@ test('pull-request preset treats local cleanup failures after squash merge as no
       title: 'Task T001: Implement greeting',
       url: 'https://example.com/pr/12',
     })),
-  }
-  const workspace = {
-    isTaskChecked: vi.fn(async () => false),
-    updateTaskChecks: vi.fn(async () => {}),
-    loadTaskContext: vi.fn(async () => ({
-      plan: '# plan\n',
-      spec: '# spec\n',
-      tasksSnippet: '- [ ] T001 Implement greeting\n',
-    })),
-  }
-  const runtime = {
+  })
+  const taskSource = createTaskSourceSessionStub({
+    applyTaskCompletion: vi.fn(async () => {}),
+    isTaskCompleted: vi.fn(async () => false),
+    revertTaskCompletion: vi.fn(async () => {}),
+  })
+  const runtime = createOrchestratorRuntimeStub({
     git,
     github,
-    store: {},
-    verifier: {},
-    workspace,
-  } as unknown as OrchestratorRuntime
+    taskSource,
+  })
 
   const result = await preset.integrate({
     commitMessage: 'Task T001: Implement greeting',
     runtime,
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   expect(github.squashMergePullRequest).toHaveBeenCalledWith({

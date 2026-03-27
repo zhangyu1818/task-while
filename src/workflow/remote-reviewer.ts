@@ -150,9 +150,9 @@ function buildApprovedReview(input: PullRequestReviewInput): ReviewOutput {
     findings: [],
     overallRisk: 'low',
     summary: `Remote reviewer ${CODEX_REVIEWER_ACTOR} approved the pull request`,
-    taskId: input.task.id,
+    taskHandle: input.taskHandle,
     verdict: 'pass',
-    acceptanceChecks: input.task.acceptance.map((criterion) => ({
+    acceptanceChecks: input.completionCriteria.map((criterion) => ({
       criterion,
       note: `Remote reviewer ${CODEX_REVIEWER_ACTOR} approved the pull request`,
       status: 'pass' as const,
@@ -176,9 +176,9 @@ function buildRejectedReview(
   })
   return {
     findings,
-    taskId: input.task.id,
+    taskHandle: input.taskHandle,
     verdict: 'rework',
-    acceptanceChecks: input.task.acceptance.map((criterion) => ({
+    acceptanceChecks: input.completionCriteria.map((criterion) => ({
       criterion,
       note: 'Remote review left active feedback',
       status: 'unclear' as const,

@@ -18,12 +18,8 @@ import type { WorkflowRuntime } from '../src/workflow/preset'
 test('runWorkflow resumes a running pull-request review by reusing the current attempt checkpoint on HEAD', async () => {
   const graph = {
     featureId: '001-demo',
-    tasks: [
-      {
-        ...createGraph().tasks[0]!,
-        maxAttempts: 1,
-      },
-    ],
+    maxIterations: 1,
+    tasks: [createGraph().tasks[0]!],
   }
   const { runtime, store } = createRuntime()
   const pullRequest: PullRequestRef = {
@@ -32,7 +28,7 @@ test('runWorkflow resumes a running pull-request review by reusing the current a
     url: 'https://example.com/pr/12',
   }
   store.state = {
-    currentTaskId: 'T001',
+    currentTaskHandle: 'T001',
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -50,7 +46,7 @@ test('runWorkflow resumes a running pull-request review by reusing the current a
     createdAt: '2026-03-25T08:00:00.000Z',
     generation: 1,
     result: createImplement('T001', 'src/greeting.ts'),
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   const implement = vi.fn(async () => {
@@ -80,7 +76,7 @@ test('runWorkflow resumes a running pull-request review by reusing the current a
       review: {
         overallRisk: 'medium' as const,
         summary: 'handle edge case',
-        taskId: 'T001',
+        taskHandle: 'T001',
         verdict: 'rework' as const,
         acceptanceChecks: [
           {

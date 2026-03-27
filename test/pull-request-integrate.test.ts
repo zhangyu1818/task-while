@@ -1,12 +1,15 @@
 import { expect, test, vi } from 'vitest'
 
 import { createPullRequestWorkflowPreset } from '../src/workflow/pull-request-preset'
+import {
+  createGitHubPortStub,
+  createGitPortStub,
+  createOrchestratorRuntimeStub,
+  createTaskSourceSessionStub,
+} from './orchestrator-runtime-test-helpers'
 
 import type { RemoteReviewerProvider } from '../src/agents/types'
-import type {
-  OrchestratorRuntime,
-  PullRequestSnapshot,
-} from '../src/core/runtime'
+import type { PullRequestSnapshot } from '../src/core/runtime'
 
 function createSnapshot(
   input: Partial<PullRequestSnapshot> = {},
@@ -34,7 +37,7 @@ test('pull-request preset finalizes and squashes an approved task branch', async
   const preset = createPullRequestWorkflowPreset({
     reviewer: createUnusedReviewer(),
   })
-  const git = {
+  const git = createGitPortStub({
     checkoutBranch: vi.fn(async () => {}),
     checkoutRemoteBranch: vi.fn(async () => {}),
     commitTask: vi.fn(async () => ({ commitSha: 'finalize-sha' })),
@@ -49,8 +52,8 @@ test('pull-request preset finalizes and squashes an approved task branch', async
     pushBranch: vi.fn(async () => {}),
     requireCleanWorktree: vi.fn(async () => {}),
     resetHard: vi.fn(async () => {}),
-  }
-  const github = {
+  })
+  const github = createGitHubPortStub({
     getPullRequestSnapshot: vi.fn(async () => createSnapshot()),
     squashMergePullRequest: vi.fn(async () => ({ commitSha: 'merged-sha' })),
     createPullRequest: vi.fn(async () => ({
@@ -63,34 +66,26 @@ test('pull-request preset finalizes and squashes an approved task branch', async
       title: 'Task T001: Implement greeting',
       url: 'https://example.com/pr/12',
     })),
-  }
-  const workspace = {
-    isTaskChecked: vi.fn(async () => false),
-    updateTaskChecks: vi.fn(async () => {}),
-    loadTaskContext: vi.fn(async () => ({
-      plan: '# plan\n',
-      spec: '# spec\n',
-      tasksSnippet: '- [ ] T001 Implement greeting\n',
-    })),
-  }
-  const runtime = {
+  })
+  const taskSource = createTaskSourceSessionStub({
+    applyTaskCompletion: vi.fn(async () => {}),
+    isTaskCompleted: vi.fn(async () => false),
+    revertTaskCompletion: vi.fn(async () => {}),
+  })
+  const runtime = createOrchestratorRuntimeStub({
     git,
     github,
-    store: {},
-    verifier: {},
-    workspace,
-  } as unknown as OrchestratorRuntime
+    taskSource,
+  })
 
   const result = await preset.integrate({
     commitMessage: 'Task T001: Implement greeting',
     runtime,
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
-  expect(workspace.isTaskChecked).toHaveBeenCalledWith('T001')
-  expect(workspace.updateTaskChecks).toHaveBeenCalledWith([
-    { checked: true, taskId: 'T001' },
-  ])
+  expect(taskSource.isTaskCompleted).toHaveBeenCalledWith('T001')
+  expect(taskSource.applyTaskCompletion).toHaveBeenCalledWith('T001')
   expect(git.commitTask).toHaveBeenCalledWith({
     message: 'Task T001: Implement greeting',
   })
@@ -111,7 +106,7 @@ test('pull-request preset restores a missing local task branch from origin durin
   const preset = createPullRequestWorkflowPreset({
     reviewer: createUnusedReviewer(),
   })
-  const git = {
+  const git = createGitPortStub({
     checkoutRemoteBranch: vi.fn(async () => {}),
     commitTask: vi.fn(async () => ({ commitSha: 'finalize-sha' })),
     deleteLocalBranch: vi.fn(async () => {}),
@@ -129,8 +124,8 @@ test('pull-request preset restores a missing local task branch from origin durin
       .fn()
       .mockRejectedValueOnce(new Error('missing local branch'))
       .mockResolvedValueOnce(undefined),
-  }
-  const github = {
+  })
+  const github = createGitHubPortStub({
     getPullRequestSnapshot: vi.fn(async () => createSnapshot()),
     squashMergePullRequest: vi.fn(async () => ({ commitSha: 'merged-sha' })),
     createPullRequest: vi.fn(async () => ({
@@ -143,28 +138,22 @@ test('pull-request preset restores a missing local task branch from origin durin
       title: 'Task T001: Implement greeting',
       url: 'https://example.com/pr/12',
     })),
-  }
-  const workspace = {
-    isTaskChecked: vi.fn(async () => false),
-    updateTaskChecks: vi.fn(async () => {}),
-    loadTaskContext: vi.fn(async () => ({
-      plan: '# plan\n',
-      spec: '# spec\n',
-      tasksSnippet: '- [ ] T001 Implement greeting\n',
-    })),
-  }
-  const runtime = {
+  })
+  const taskSource = createTaskSourceSessionStub({
+    applyTaskCompletion: vi.fn(async () => {}),
+    isTaskCompleted: vi.fn(async () => false),
+    revertTaskCompletion: vi.fn(async () => {}),
+  })
+  const runtime = createOrchestratorRuntimeStub({
     git,
     github,
-    store: {},
-    verifier: {},
-    workspace,
-  } as unknown as OrchestratorRuntime
+    taskSource,
+  })
 
   const result = await preset.integrate({
     commitMessage: 'Task T001: Implement greeting',
     runtime,
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   expect(git.checkoutRemoteBranch).toHaveBeenCalledWith(
@@ -178,7 +167,7 @@ test('pull-request integrate rolls back the task checkbox when finalize commit f
   const preset = createPullRequestWorkflowPreset({
     reviewer: createUnusedReviewer(),
   })
-  const git = {
+  const git = createGitPortStub({
     checkoutBranch: vi.fn(async () => {}),
     checkoutRemoteBranch: vi.fn(async () => {}),
     deleteLocalBranch: vi.fn(async () => {}),
@@ -195,8 +184,8 @@ test('pull-request integrate rolls back the task checkbox when finalize commit f
     commitTask: vi.fn(async () => {
       throw new Error('commit exploded')
     }),
-  }
-  const github = {
+  })
+  const github = createGitHubPortStub({
     getPullRequestSnapshot: vi.fn(async () => createSnapshot()),
     squashMergePullRequest: vi.fn(async () => ({ commitSha: 'merged-sha' })),
     createPullRequest: vi.fn(async () => ({
@@ -209,39 +198,27 @@ test('pull-request integrate rolls back the task checkbox when finalize commit f
       title: 'Task T001: Implement greeting',
       url: 'https://example.com/pr/12',
     })),
-  }
-  const workspace = {
-    isTaskChecked: vi.fn(async () => false),
-    loadTaskContext: vi.fn(async () => ({
-      plan: '# plan\n',
-      spec: '# spec\n',
-      tasksSnippet: '- [ ] T001 Implement greeting\n',
-    })),
-    updateTaskChecks: vi
-      .fn()
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(undefined),
-  }
-  const runtime = {
+  })
+  const taskSource = createTaskSourceSessionStub({
+    isTaskCompleted: vi.fn(async () => false),
+    revertTaskCompletion: vi.fn(async () => {}),
+    applyTaskCompletion: vi.fn(async () => {
+      throw new Error('commit exploded')
+    }),
+  })
+  const runtime = createOrchestratorRuntimeStub({
     git,
     github,
-    store: {},
-    verifier: {},
-    workspace,
-  } as unknown as OrchestratorRuntime
+    taskSource,
+  })
 
   await expect(
     preset.integrate({
       commitMessage: 'Task T001: Implement greeting',
       runtime,
-      taskId: 'T001',
+      taskHandle: 'T001',
     }),
   ).rejects.toThrow(/commit exploded/)
-
-  expect(workspace.updateTaskChecks).toHaveBeenNthCalledWith(1, [
-    { checked: true, taskId: 'T001' },
-  ])
-  expect(workspace.updateTaskChecks).toHaveBeenNthCalledWith(2, [
-    { checked: false, taskId: 'T001' },
-  ])
+  expect(taskSource.applyTaskCompletion).toHaveBeenCalledWith('T001')
+  expect(taskSource.revertTaskCompletion).toHaveBeenCalledWith('T001')
 })

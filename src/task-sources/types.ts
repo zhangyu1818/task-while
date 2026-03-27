@@ -1,5 +1,7 @@
 import type { ImplementOutput, ReviewFinding } from '../types'
 
+export type TaskSourceName = string
+
 export interface TaskPrompt {
   instructions: string[]
   sections: {
@@ -40,6 +42,6 @@ export interface OpenTaskSourceInput {
 }
 
 export interface TaskSource {
-  readonly name: 'spec-kit'
+  readonly name: TaskSourceName
   open: (input: OpenTaskSourceInput) => Promise<TaskSourceSession>
 }

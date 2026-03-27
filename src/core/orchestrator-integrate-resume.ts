@@ -5,7 +5,6 @@ import {
 import { recordCommitFailure, recordIntegrateResult } from './engine'
 import {
   appendEvent,
-  createTaskCommitMessage,
   now,
   persistCommittedArtifacts,
   persistState,
@@ -36,26 +35,21 @@ export async function resumePullRequestIntegrate(
 ): Promise<null | ResumePullRequestIntegrateResult> {
   if (
     !isPullRequestWorkflowPreset(input.workflow.preset) ||
-    !input.state.currentTaskId
+    !input.state.currentTaskHandle
   ) {
     return null
   }
 
-  const taskId = input.state.currentTaskId
-  const taskState = input.state.tasks[taskId]
+  const taskHandle = input.state.currentTaskHandle
+  const taskState = input.state.tasks[taskHandle]
   if (taskState?.status !== 'running' || taskState.stage !== 'integrate') {
-    return null
-  }
-
-  const task = input.graph.tasks.find((item) => item.id === taskId)
-  if (!task) {
     return null
   }
 
   const artifactKey = {
     attempt: taskState.attempt,
     generation: taskState.generation,
-    taskId,
+    taskHandle,
   }
   const [implementArtifact, reviewArtifact] = await Promise.all([
     input.runtime.store.loadImplementArtifact(artifactKey),
@@ -63,18 +57,18 @@ export async function resumePullRequestIntegrate(
   ])
 
   if (!implementArtifact || !reviewArtifact) {
-    const reason = `Cannot resume integrate for ${taskId} without persisted implement and review artifacts`
+    const reason = `Cannot resume integrate for ${taskHandle} without persisted implement and review artifacts`
     const nextState = recordCommitFailure(
       input.graph,
       input.state,
-      taskId,
+      taskHandle,
       reason,
     )
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
       detail: reason,
       generation: taskState.generation,
-      taskId,
+      taskHandle,
       timestamp: now(),
       type: 'integrate_failed',
     })
@@ -85,28 +79,28 @@ export async function resumePullRequestIntegrate(
     }
   }
 
-  const commitMessage = createTaskCommitMessage(task.id, task.title)
+  const commitMessage = input.runtime.taskSource.buildCommitSubject(taskHandle)
 
   let integrateResult
   try {
     integrateResult = await input.workflow.preset.integrate({
       commitMessage,
       runtime: input.runtime,
-      taskId: task.id,
+      taskHandle,
     })
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     const nextState = recordCommitFailure(
       input.graph,
       input.state,
-      task.id,
+      taskHandle,
       reason,
     )
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
       detail: reason,
       generation: taskState.generation,
-      taskId: task.id,
+      taskHandle,
       timestamp: now(),
       type: 'integrate_failed',
     })
@@ -122,18 +116,23 @@ export async function resumePullRequestIntegrate(
     createdAt: now(),
     generation: taskState.generation,
     result: integrateResult.result,
-    taskId: task.id,
+    taskHandle,
   }
-  const nextState = recordIntegrateResult(input.graph, input.state, task.id, {
-    commitSha: integrateResult.result.commitSha,
-    review: reviewArtifact.result,
-  })
+  const nextState = recordIntegrateResult(
+    input.graph,
+    input.state,
+    taskHandle,
+    {
+      commitSha: integrateResult.result.commitSha,
+      review: reviewArtifact.result,
+    },
+  )
   const report = await persistState(input.runtime, input.graph, nextState)
   await appendEvent(input.runtime, {
     attempt: taskState.attempt,
     detail: integrateResult.result.summary,
     generation: taskState.generation,
-    taskId: task.id,
+    taskHandle,
     timestamp: now(),
     type: 'integrate_completed',
   })

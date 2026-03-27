@@ -2,18 +2,13 @@ import {
   canStartTask,
   cloneState,
   createBaseTaskState,
-  getTask,
+  getMaxIterations,
   getTaskState,
   shouldPassZeroGate,
   withReviewMetadata,
 } from './engine-helpers'
 
-import type {
-  ReviewOutput,
-  TaskDefinition,
-  TaskGraph,
-  WorkflowState,
-} from '../types'
+import type { ReviewOutput, TaskGraph, WorkflowState } from '../types'
 
 export {
   buildReport,
@@ -26,10 +21,10 @@ export {
 
 export function createInitialWorkflowState(graph: TaskGraph): WorkflowState {
   return {
-    currentTaskId: null,
+    currentTaskHandle: null,
     featureId: graph.featureId,
     tasks: Object.fromEntries(
-      graph.tasks.map((task) => [task.id, createBaseTaskState()]),
+      graph.tasks.map((task) => [task.handle, createBaseTaskState()]),
     ),
   }
 }
@@ -42,16 +37,16 @@ export function alignStateWithGraph(
   const next = cloneState(state)
   const alignedTasks = Object.fromEntries(
     graph.tasks.map((task) => {
-      const existing = next.tasks[task.id] ?? createBaseTaskState()
+      const existing = next.tasks[task.handle] ?? createBaseTaskState()
       if (existing.status === 'running') {
         if (
           (options?.preserveRunningReview && existing.stage === 'review') ||
           (options?.preserveRunningIntegrate && existing.stage === 'integrate')
         ) {
-          return [task.id, existing]
+          return [task.handle, existing]
         }
         return [
-          task.id,
+          task.handle,
           {
             attempt: existing.attempt,
             generation: existing.generation,
@@ -64,16 +59,16 @@ export function alignStateWithGraph(
           },
         ]
       }
-      return [task.id, existing]
+      return [task.handle, existing]
     }),
   )
 
   return {
     featureId: graph.featureId,
     tasks: alignedTasks,
-    currentTaskId:
-      next.currentTaskId && alignedTasks[next.currentTaskId]
-        ? next.currentTaskId
+    currentTaskHandle:
+      next.currentTaskHandle && alignedTasks[next.currentTaskHandle]
+        ? next.currentTaskHandle
         : null,
   }
 }
@@ -81,10 +76,10 @@ export function alignStateWithGraph(
 export function selectNextRunnableTask(
   graph: TaskGraph,
   state: WorkflowState,
-): null | TaskDefinition {
+): null | string {
   return (
     graph.tasks.find((task) => {
-      const taskState = state.tasks[task.id]
+      const taskState = state.tasks[task.handle]
       if (!taskState) {
         return false
       }
@@ -92,28 +87,32 @@ export function selectNextRunnableTask(
         return true
       }
       return (
-        taskState.status === 'pending' && canStartTask(graph, state, task.id)
+        taskState.status === 'pending' &&
+        canStartTask(graph, state, task.handle)
       )
-    }) ?? null
+    })?.handle ?? null
   )
 }
 
 export function startAttempt(
   graph: TaskGraph,
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
 ): WorkflowState {
-  const taskState = getTaskState(state, taskId)
+  const taskState = getTaskState(state, taskHandle)
   if (taskState.status !== 'pending' && taskState.status !== 'rework') {
-    throw new Error(`Task ${taskId} is not runnable`)
+    throw new Error(`Task ${taskHandle} is not runnable`)
   }
-  if (taskState.status === 'pending' && !canStartTask(graph, state, taskId)) {
-    throw new Error(`Task ${taskId} dependencies are not completed`)
+  if (
+    taskState.status === 'pending' &&
+    !canStartTask(graph, state, taskHandle)
+  ) {
+    throw new Error(`Task ${taskHandle} dependencies are not completed`)
   }
   const next = cloneState(state)
-  const current = getTaskState(next, taskId)
-  next.currentTaskId = taskId
-  next.tasks[taskId] = {
+  const current = getTaskState(next, taskHandle)
+  next.currentTaskHandle = taskHandle
+  next.tasks[taskHandle] = {
     ...current,
     attempt: current.attempt + 1,
     invalidatedBy: null,
@@ -125,14 +124,14 @@ export function startAttempt(
 
 export function recordImplementSuccess(
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
 ): WorkflowState {
   const next = cloneState(state)
-  const taskState = getTaskState(next, taskId)
+  const taskState = getTaskState(next, taskHandle)
   if (taskState.status !== 'running' || taskState.stage !== 'implement') {
-    throw new Error(`Task ${taskId} is not implementing`)
+    throw new Error(`Task ${taskHandle} is not implementing`)
   }
-  next.tasks[taskId] = {
+  next.tasks[taskHandle] = {
     ...taskState,
     stage: 'review',
     status: 'running',
@@ -143,15 +142,14 @@ export function recordImplementSuccess(
 export function recordImplementFailure(
   graph: TaskGraph,
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
   reason: string,
 ): WorkflowState {
   const next = cloneState(state)
-  const task = getTask(graph, taskId)
-  const taskState = getTaskState(next, taskId)
-  next.currentTaskId = null
-  next.tasks[taskId] =
-    taskState.attempt >= task.maxAttempts
+  const taskState = getTaskState(next, taskHandle)
+  next.currentTaskHandle = null
+  next.tasks[taskHandle] =
+    taskState.attempt >= getMaxIterations(graph)
       ? {
           ...withReviewMetadata(taskState, {}),
           reason,
@@ -167,13 +165,12 @@ export function recordImplementFailure(
 export function recordReviewResult(
   graph: TaskGraph,
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
   input: RecordReviewResultInput,
 ): WorkflowState {
   const next = cloneState(state)
-  const task = getTask(graph, taskId)
-  const taskState = getTaskState(next, taskId)
-  next.currentTaskId = null
+  const taskState = getTaskState(next, taskHandle)
+  next.currentTaskHandle = null
   const metadata = withReviewMetadata(taskState, {
     findings: input.review.findings,
     reviewVerdict: input.review.verdict,
@@ -181,12 +178,12 @@ export function recordReviewResult(
 
   if (shouldPassZeroGate(input)) {
     throw new Error(
-      `Task ${taskId} requires integrate result after approved review`,
+      `Task ${taskHandle} requires integrate result after approved review`,
     )
   }
 
   if (input.review.verdict === 'replan') {
-    next.tasks[taskId] = {
+    next.tasks[taskHandle] = {
       ...metadata,
       reason: input.review.summary,
       status: 'replan',
@@ -195,7 +192,7 @@ export function recordReviewResult(
   }
 
   if (input.review.verdict === 'blocked') {
-    next.tasks[taskId] = {
+    next.tasks[taskHandle] = {
       ...metadata,
       reason: input.review.summary,
       status: 'blocked',
@@ -203,8 +200,8 @@ export function recordReviewResult(
     return next
   }
 
-  next.tasks[taskId] =
-    taskState.attempt >= task.maxAttempts
+  next.tasks[taskHandle] =
+    taskState.attempt >= getMaxIterations(graph)
       ? {
           ...metadata,
           reason: input.review.summary,

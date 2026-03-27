@@ -1,11 +1,6 @@
-import type { TaskSource } from './types'
+import { specKitTaskSource } from './spec-kit/source'
 
-const specKitTaskSource: TaskSource = {
-  name: 'spec-kit',
-  async open() {
-    throw new Error('spec-kit task source is not implemented yet')
-  },
-}
+import type { TaskSource } from './types'
 
 export function getTaskSource(name: string): TaskSource {
   if (name === 'spec-kit') {
@@ -13,4 +8,11 @@ export function getTaskSource(name: string): TaskSource {
   }
 
   throw new Error(`Unknown task source: ${name}`)
+}
+
+export async function openTaskSource(
+  name: string,
+  input: Parameters<TaskSource['open']>[0],
+) {
+  return getTaskSource(name).open(input)
 }

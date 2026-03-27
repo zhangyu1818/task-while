@@ -13,16 +13,12 @@ import {
 test('runWorkflow does not mechanically block when changed files extend beyond the original task scope', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
@@ -36,7 +32,7 @@ test('runWorkflow does not mechanically block when changed files extend beyond t
         findings: [],
         overallRisk: 'low',
         summary: 'review passed with additional related files',
-        taskId: 'T001',
+        taskHandle: 'T001',
         verdict: 'pass',
         acceptanceChecks: [
           {
@@ -67,7 +63,7 @@ test('runWorkflow does not mechanically block when changed files extend beyond t
     status: 'done',
   })
   expect(workspace.checkboxUpdates).toEqual([
-    [{ checked: true, taskId: 'T001' }],
+    [{ checked: true, taskHandle: 'T001' }],
   ])
   expect(git.commitMessages).toEqual(['Task T001: Implement greeting'])
   expect(store.reviewArtifacts).toHaveLength(1)
@@ -76,16 +72,12 @@ test('runWorkflow does not mechanically block when changed files extend beyond t
 test('runWorkflow preserves implement artifacts when review fails and blocks after max attempts', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
@@ -113,25 +105,22 @@ test('runWorkflow preserves implement artifacts when review fails and blocks aft
 test('runWorkflow treats task checkbox write failures as recoverable commit failures', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
   const { git, runtime, workspace } = createRuntime()
+  const originalUpdateTaskChecks = workspace.updateTaskChecks.bind(workspace)
   workspace.updateTaskChecks = async (updates) => {
-    if (updates[0]?.checked) {
+    if (updates[0]?.completed) {
       throw new Error('disk full')
     }
-    workspace.checkboxUpdates.push(updates)
+    await originalUpdateTaskChecks(updates)
   }
   const provider = new ScriptedWorkflowProvider(
     [createImplement('T001', 'src/greeting.ts')],
@@ -156,7 +145,7 @@ test('runWorkflow aligns persisted state with newly added tasks before saving re
   const graph = createGraph()
   const { runtime, store } = createRuntime()
   store.state = {
-    currentTaskId: null,
+    currentTaskHandle: null,
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -184,28 +173,27 @@ test('runWorkflow aligns persisted state with newly added tasks before saving re
 
   expect(result.state.tasks.T001).toMatchObject({ status: 'done' })
   expect(result.state.tasks.T002).toMatchObject({ status: 'done' })
-  expect(store.report?.tasks.map((task) => task.id)).toEqual(['T001', 'T002'])
+  expect(store.report?.tasks.map((task) => task.taskHandle)).toEqual([
+    'T001',
+    'T002',
+  ])
 })
 
 test('runWorkflow requeues persisted running tasks so interrupted attempts can resume', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 2,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
   const { runtime, store } = createRuntime()
   store.state = {
-    currentTaskId: 'T001',
+    currentTaskHandle: 'T001',
     featureId: '001-demo',
     tasks: {
       T001: {

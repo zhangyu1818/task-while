@@ -45,7 +45,7 @@ test('runCommand creates one git commit per completed task and records commitSha
   await initGitRepo(root)
   const provider = new ScriptedWorkflowProvider(
     async (input) => {
-      if (input.task.id === 'T001') {
+      if (input.taskHandle === 'T001') {
         await writeFile(
           path.join(root, 'src', 'greeting.js'),
           'exports.buildGreeting = () => "Hello, world!"\n',
@@ -179,7 +179,7 @@ test('runCommand resumes remaining tasks and keeps task-to-commit mapping linear
   await initGitRepo(root)
   const firstProvider = new ScriptedWorkflowProvider(
     async (input) => {
-      if (input.task.id === 'T001') {
+      if (input.taskHandle === 'T001') {
         await writeFile(
           path.join(root, 'src', 'greeting.js'),
           'exports.buildGreeting = () => "Hello, world!"\n',
@@ -196,9 +196,9 @@ test('runCommand resumes remaining tasks and keeps task-to-commit mapping linear
   const partialMessages = await gitLogMessages(root)
 
   expect(partial.summary.finalStatus).toBe('in_progress')
-  expect(firstProvider.implementInputs.map((input) => input.task.id)).toEqual([
-    'T001',
-  ])
+  expect(
+    firstProvider.implementInputs.map((input) => input.taskHandle),
+  ).toEqual(['T001'])
   expect(partialMessages.slice(0, 2)).toEqual([
     'Task T001: Implement greeting in src/greeting.js',
     'Initial commit',
@@ -206,7 +206,7 @@ test('runCommand resumes remaining tasks and keeps task-to-commit mapping linear
 
   const secondProvider = new ScriptedWorkflowProvider(
     async (input) => {
-      if (input.task.id === 'T002') {
+      if (input.taskHandle === 'T002') {
         await writeFile(
           path.join(root, 'src', 'farewell.js'),
           'exports.buildFarewell = () => "Bye, world!"\n',
@@ -221,9 +221,9 @@ test('runCommand resumes remaining tasks and keeps task-to-commit mapping linear
   const resumedMessages = await gitLogMessages(root)
 
   expect(resumed.summary.finalStatus).toBe('completed')
-  expect(secondProvider.implementInputs.map((input) => input.task.id)).toEqual([
-    'T002',
-  ])
+  expect(
+    secondProvider.implementInputs.map((input) => input.taskHandle),
+  ).toEqual(['T002'])
   expect(resumedMessages.slice(0, 3)).toEqual([
     'Task T002: Implement farewell in src/farewell.js',
     'Task T001: Implement greeting in src/greeting.js',
@@ -234,7 +234,7 @@ test('runCommand resumes remaining tasks and keeps task-to-commit mapping linear
 test('runCommand reverts the tasks.md checkbox and blocks when the task commit fails', async () => {
   const { context, featureDir, root } = await createWorkspace({
     includeSecondTask: false,
-    maxAttempts: 1,
+    maxIterations: 1,
   })
   await initGitRepo(root)
   const hookPath = path.join(root, '.git', 'hooks', 'pre-commit')

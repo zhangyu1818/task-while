@@ -109,6 +109,30 @@ test('loadWorkflowConfig parses pull-request mode without rewriting it to direct
   })
 })
 
+test('loadWorkflowConfig preserves a custom task source string while keeping spec-kit as the default', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    ['task:', '  source: openspec', ''].join('\n'),
+  )
+
+  const config = await loadWorkflowConfig(workspaceRoot)
+
+  expect(config).toEqual({
+    task: {
+      maxIterations: 5,
+      source: 'openspec',
+    },
+    workflow: {
+      mode: 'direct',
+      roles: {
+        implementer: { provider: 'codex' },
+        reviewer: { provider: 'codex' },
+      },
+    },
+  })
+})
+
 test('loadWorkflowConfig rejects unknown keys instead of silently defaulting', async () => {
   const workspaceRoot = await createWorkspace()
   await writeFile(

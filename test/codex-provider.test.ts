@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
 import { createCodexProvider, type CodexClientLike } from '../src/agents/codex'
+import { createTaskPrompt } from './task-source-test-helpers'
 
 import type { ImplementerProvider, ReviewerProvider } from '../src/agents/types'
 
@@ -40,7 +41,7 @@ test('createCodexProvider returns a role-scoped codex provider', async () => {
               notes: [],
               status: 'implemented',
               summary: 'ok',
-              taskId: 'T001',
+              taskHandle: 'T001',
               unresolvedItems: [],
             }),
           }
@@ -57,21 +58,10 @@ test('createCodexProvider returns a role-scoped codex provider', async () => {
     attempt: 1,
     generation: 1,
     lastFindings: [],
-    plan: '# plan',
-    spec: '# spec',
-    tasksSnippet: '- [ ] T001 Do work',
-    task: {
-      id: 'T001',
-      acceptance: ['works'],
-      dependsOn: [],
-      maxAttempts: 2,
-      parallelizable: false,
-      phase: 'Core',
-      reviewRubric: ['clear'],
-      title: 'Do work',
-    },
+    prompt: createTaskPrompt(),
+    taskHandle: 'T001',
   })
 
   expect(provider.name).toBe('codex')
-  expect(implement.taskId).toBe('T001')
+  expect(implement.taskHandle).toBe('T001')
 })

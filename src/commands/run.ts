@@ -4,8 +4,9 @@ import {
   type CodexThreadEventHandler,
 } from '../agents/codex'
 import { runWorkflow, type WorkflowRunResult } from '../core/orchestrator'
-import { normalizeTaskGraph } from '../core/task-normalizer'
+import { buildTaskTopology } from '../core/task-topology'
 import { createOrchestratorRuntime } from '../runtime/fs-runtime'
+import { openTaskSource } from '../task-sources/registry'
 import {
   loadWorkflowConfig,
   type WorkflowConfig,
@@ -192,20 +193,30 @@ export async function loadWorkflowExecution(
     context,
     options,
   })
+  const taskSource = await openTaskSource(config.task.source, {
+    featureDir: context.featureDir,
+    featureId: context.featureId,
+    workspaceRoot: context.workspaceRoot,
+  })
   const runtime = createOrchestratorRuntime({
     featureDir: context.featureDir,
+    taskSource,
     workspaceRoot: context.workspaceRoot,
   })
   await runtime.git.requireCleanWorktree()
-  const graph = await normalizeTaskGraph({
-    featureDir: context.featureDir,
-    tasksPath: context.tasksPath,
-  })
+  const graph = buildTaskTopology(
+    taskSource,
+    context.featureId,
+    config.task.maxIterations,
+  )
+  const untilTaskHandle = options.untilTaskId
+    ? taskSource.resolveTaskSelector(options.untilTaskId)
+    : undefined
   const workflowInput = {
     graph,
     runtime,
     workflow,
-    ...(options.untilTaskId ? { untilTaskId: options.untilTaskId } : {}),
+    ...(untilTaskHandle ? { untilTaskHandle } : {}),
   }
 
   return {

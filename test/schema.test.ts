@@ -11,10 +11,17 @@ import {
 
 test('validateWorkflowState accepts discriminated task states', () => {
   const state = validateWorkflowState({
-    currentTaskId: 'T001',
+    currentTaskHandle: 'task/greet',
     featureId: '001-demo',
     tasks: {
-      T001: {
+      'task/farewell': {
+        attempt: 0,
+        generation: 1,
+        invalidatedBy: null,
+        lastFindings: [],
+        status: 'pending',
+      },
+      'task/greet': {
         attempt: 1,
         generation: 1,
         invalidatedBy: null,
@@ -23,22 +30,15 @@ test('validateWorkflowState accepts discriminated task states', () => {
         stage: 'review',
         status: 'running',
       },
-      T002: {
-        attempt: 0,
-        generation: 1,
-        invalidatedBy: null,
-        lastFindings: [],
-        status: 'pending',
-      },
     },
   })
 
-  expect(state.tasks.T001?.status).toBe('running')
+  expect(state.tasks['task/greet']?.status).toBe('running')
 })
 
 test('validateWorkflowState accepts integrate as a running stage', () => {
   const state = validateWorkflowState({
-    currentTaskId: 'T001',
+    currentTaskHandle: 'T001',
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -61,7 +61,7 @@ test('validateWorkflowState accepts integrate as a running stage', () => {
 test('validateWorkflowState rejects running task without stage', () => {
   expect(() => {
     validateWorkflowState({
-      currentTaskId: 'T001',
+      currentTaskHandle: 'T001',
       featureId: '001-demo',
       tasks: {
         T001: {
@@ -81,14 +81,14 @@ test('implementArtifactSchema captures generation and attempt metadata', () => {
     attempt: 2,
     createdAt: '2026-03-22T00:00:00.000Z',
     generation: 3,
-    taskId: 'T001',
+    taskHandle: 'T001',
     result: {
       assumptions: [],
       needsHumanAttention: false,
       notes: [],
       status: 'implemented',
       summary: 'done',
-      taskId: 'T001',
+      taskHandle: 'T001',
       unresolvedItems: [],
     },
   })
@@ -101,7 +101,7 @@ test('integrateArtifactSchema captures commit metadata', () => {
     attempt: 1,
     createdAt: '2026-03-24T00:00:00.000Z',
     generation: 2,
-    taskId: 'T001',
+    taskHandle: 'T001',
     result: {
       commitSha: 'commit-1',
       summary: 'integrated',
@@ -121,7 +121,7 @@ test('validateWorkflowEvent accepts integrate lifecycle events', () => {
       validateWorkflowEvent({
         attempt: 1,
         generation: 2,
-        taskId: 'T001',
+        taskHandle: 'T001',
         timestamp: '2026-03-24T00:00:00.000Z',
         type,
       }).type,
@@ -134,7 +134,7 @@ test('validateReviewOutput rejects pass verdicts with remaining findings', () =>
     validateReviewOutput({
       overallRisk: 'medium',
       summary: 'looks mostly fine',
-      taskId: 'T001',
+      taskHandle: 'T001',
       verdict: 'pass',
       acceptanceChecks: [
         {
@@ -161,7 +161,7 @@ test('validateReviewOutput rejects pass verdicts with failed acceptance checks',
       findings: [],
       overallRisk: 'medium',
       summary: 'looks mostly fine',
-      taskId: 'T001',
+      taskHandle: 'T001',
       verdict: 'pass',
       acceptanceChecks: [
         {
@@ -174,30 +174,21 @@ test('validateReviewOutput rejects pass verdicts with failed acceptance checks',
   }).toThrow(/pass requires all acceptance checks to pass/i)
 })
 
-test('validateTaskGraph rejects duplicate task ids', () => {
+test('validateTaskGraph rejects duplicate task handles', () => {
   expect(() => {
     validateTaskGraph({
       featureId: '001-demo',
+      maxIterations: 5,
       tasks: [
         {
-          id: 'T001',
-          acceptance: ['works'],
+          commitSubject: 'Task T001: Do work',
           dependsOn: [],
-          maxAttempts: 2,
-          parallelizable: false,
-          phase: 'Phase 1',
-          reviewRubric: ['clear'],
-          title: 'Do work',
+          handle: 'T001',
         },
         {
-          id: 'T001',
-          acceptance: ['works'],
+          commitSubject: 'Task T001: Do more work',
           dependsOn: [],
-          maxAttempts: 2,
-          parallelizable: false,
-          phase: 'Phase 1',
-          reviewRubric: ['clear'],
-          title: 'Do more work',
+          handle: 'T001',
         },
       ],
     })
