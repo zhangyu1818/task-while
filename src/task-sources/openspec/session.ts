@@ -58,6 +58,7 @@ function createReviewPrompt(
     instructions: [
       'Review only the current task from the OpenSpec change.',
       'Use the OpenSpec apply instruction as the execution contract.',
+      input.apply.instruction,
       'Judge the implementation against the current task, OpenSpec context, and actual changed files.',
       'Only return verdict "pass" when the current task is satisfied by the implementation.',
       'Do not expand the review to unrelated repository changes.',
