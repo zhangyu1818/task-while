@@ -50,7 +50,7 @@ export async function readOpenSpecApplyInstructions(input: {
         cwd: input.workspaceRoot,
       },
     )
-    return parseCliJson<OpenSpecApplyInstructions>(stdout)
+    return await parseCliJson<OpenSpecApplyInstructions>(stdout)
   } catch (error) {
     throw new Error(
       `Failed to read OpenSpec apply instructions for ${input.changeName}: ${error instanceof Error ? error.message : String(error)}`,
@@ -70,7 +70,7 @@ export async function readOpenSpecStatus(input: {
         cwd: input.workspaceRoot,
       },
     )
-    return parseCliJson<OpenSpecStatus>(stdout)
+    return await parseCliJson<OpenSpecStatus>(stdout)
   } catch (error) {
     throw new Error(
       `Failed to read OpenSpec status for ${input.changeName}: ${error instanceof Error ? error.message : String(error)}`,
