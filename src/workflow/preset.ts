@@ -1,31 +1,31 @@
 import type { WorkflowRoleProviders } from '../agents/types'
 import type { OrchestratorRuntime } from '../core/runtime'
-import type {
-  ImplementOutput,
-  ReviewFinding,
-  ReviewOutput,
-  TaskContext,
-  TaskDefinition,
-} from '../types'
+import type { TaskPrompt } from '../task-sources/types'
+import type { ImplementOutput, ReviewFinding, ReviewOutput } from '../types'
 
 export type WorkflowMode = 'direct' | 'pull-request'
 
-interface BaseReviewPhaseContext {
+export interface DirectReviewPhaseContext {
+  actualChangedFiles: string[]
   attempt: number
   commitMessage: string
   generation: number
   implement: ImplementOutput
   lastFindings: ReviewFinding[]
+  prompt: TaskPrompt
+  taskHandle: string
+}
+
+export interface PullRequestReviewPhaseContext {
+  attempt: number
+  commitMessage: string
+  completionCriteria: string[]
+  generation?: number
+  implement?: ImplementOutput
+  lastFindings?: never[]
   runtime: OrchestratorRuntime
-  task: TaskDefinition
-  taskContext: TaskContext
+  taskHandle: string
 }
-
-export interface DirectReviewPhaseContext extends BaseReviewPhaseContext {
-  actualChangedFiles: string[]
-}
-
-export type PullRequestReviewPhaseContext = BaseReviewPhaseContext
 
 export interface ApprovedReviewPhaseResult {
   kind: 'approved'
@@ -44,7 +44,7 @@ export type ReviewPhaseResult =
 export interface IntegratePhaseContext {
   commitMessage: string
   runtime: OrchestratorRuntime
-  taskId: string
+  taskHandle: string
 }
 
 export interface IntegratePhaseResult {

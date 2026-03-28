@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
 import { CodexAgentClient, type CodexClientLike } from '../src/agents/codex'
+import { createTaskPrompt } from './task-source-test-helpers'
 
 const mockState = vi.hoisted(() => {
   return {
@@ -45,19 +46,8 @@ test('CodexAgentClient throws when SDK returns empty finalResponse in non-stream
       attempt: 1,
       generation: 1,
       lastFindings: [],
-      plan: '# plan',
-      spec: '# spec',
-      tasksSnippet: '- [ ] T001 Do work',
-      task: {
-        id: 'T001',
-        acceptance: ['works'],
-        dependsOn: [],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['clear'],
-        title: 'Do work',
-      },
+      prompt: createTaskPrompt(),
+      taskHandle: 'T001',
     }),
   ).rejects.toThrow(/empty finalResponse/i)
 })
@@ -84,19 +74,8 @@ test('CodexAgentClient throws when SDK returns non-JSON finalResponse in non-str
       attempt: 1,
       generation: 1,
       lastFindings: [],
-      plan: '# plan',
-      spec: '# spec',
-      tasksSnippet: '- [ ] T001 Do work',
-      task: {
-        id: 'T001',
-        acceptance: ['works'],
-        dependsOn: [],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['clear'],
-        title: 'Do work',
-      },
+      prompt: createTaskPrompt(),
+      taskHandle: 'T001',
     }),
   ).rejects.toThrow(/non-JSON finalResponse/i)
 })
@@ -141,19 +120,8 @@ test('CodexAgentClient surfaces streamed agent failures before any structured re
       attempt: 1,
       generation: 1,
       lastFindings: [],
-      plan: '# plan',
-      spec: '# spec',
-      tasksSnippet: '- [ ] T001 Do work',
-      task: {
-        id: 'T001',
-        acceptance: ['works'],
-        dependsOn: [],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['clear'],
-        title: 'Do work',
-      },
+      prompt: createTaskPrompt(),
+      taskHandle: 'T001',
     }),
   ).rejects.toThrow(/model failed/i)
   expect(seenEvents).toEqual(['thread.started', 'turn.failed'])
@@ -198,19 +166,8 @@ test('CodexAgentClient throws when streamed mode completes without any final age
       attempt: 1,
       generation: 1,
       lastFindings: [],
-      plan: '# plan',
-      spec: '# spec',
-      tasksSnippet: '- [ ] T001 Do work',
-      task: {
-        id: 'T001',
-        acceptance: ['works'],
-        dependsOn: [],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['clear'],
-        title: 'Do work',
-      },
+      prompt: createTaskPrompt(),
+      taskHandle: 'T001',
     }),
   ).rejects.toThrow(/empty finalResponse/i)
 })

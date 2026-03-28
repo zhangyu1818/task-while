@@ -18,37 +18,31 @@ import type { ReviewOutput, TaskGraph } from '../src/types'
 function createGraph(): TaskGraph {
   return {
     featureId: '001-demo',
+    maxIterations: 2,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
       {
-        id: 'T002',
-        acceptance: ['buildFarewell works'],
+        commitSubject: 'Task T002: Implement farewell',
         dependsOn: ['T001'],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement farewell',
+        handle: 'T002',
       },
     ],
   }
 }
 
-function createPassingReview(taskId: string, criterion: string): ReviewOutput {
+function createPassingReview(
+  taskHandle: string,
+  criterion: string,
+): ReviewOutput {
   return {
     findings: [],
     overallRisk: 'low',
     summary: 'ok',
-    taskId,
+    taskHandle,
     verdict: 'pass',
     acceptanceChecks: [
       {
@@ -216,7 +210,7 @@ test('rewindTaskGeneration starts a fresh generation for target and descendants'
 test('buildReport summarizes workflow state without exposing internal invalidation details', () => {
   const graph = createGraph()
   const state = {
-    currentTaskId: null,
+    currentTaskHandle: null,
     featureId: '001-demo',
     tasks: {
       T001: {

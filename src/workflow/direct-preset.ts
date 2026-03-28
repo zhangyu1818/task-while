@@ -16,7 +16,7 @@ export function createDirectWorkflowPreset(
       const { commitSha } = await finalizeTaskCheckbox({
         commitMessage: context.commitMessage,
         runtime: context.runtime,
-        taskId: context.taskId,
+        taskHandle: context.taskHandle,
       })
       return {
         kind: 'completed',
@@ -33,10 +33,8 @@ export function createDirectWorkflowPreset(
         generation: context.generation,
         implement: context.implement,
         lastFindings: context.lastFindings,
-        plan: context.taskContext.plan,
-        spec: context.taskContext.spec,
-        task: context.task,
-        tasksSnippet: context.taskContext.tasksSnippet,
+        prompt: context.prompt,
+        taskHandle: context.taskHandle,
       })
       return review.verdict === 'pass'
         ? { kind: 'approved', review }

@@ -3,9 +3,9 @@ import type {
   ReviewFinding,
   ReviewOutput,
   ReviewVerdict,
-  TaskDefinition,
   TaskGraph,
   TaskState,
+  TaskTopologyEntry,
   WorkflowState,
 } from '../types'
 
@@ -23,18 +23,24 @@ export function createBaseTaskState(): PendingTaskState {
   }
 }
 
-export function getTask(graph: TaskGraph, taskId: string): TaskDefinition {
-  const task = graph.tasks.find((item) => item.id === taskId)
+export function getTask(
+  graph: TaskGraph,
+  taskHandle: string,
+): TaskTopologyEntry {
+  const task = graph.tasks.find((item) => item.handle === taskHandle)
   if (!task) {
-    throw new Error(`Unknown task: ${taskId}`)
+    throw new Error(`Unknown task: ${taskHandle}`)
   }
   return task
 }
 
-export function getTaskState(state: WorkflowState, taskId: string): TaskState {
-  const taskState = state.tasks[taskId]
+export function getTaskState(
+  state: WorkflowState,
+  taskHandle: string,
+): TaskState {
+  const taskState = state.tasks[taskHandle]
   if (!taskState) {
-    throw new Error(`Missing state for task ${taskId}`)
+    throw new Error(`Missing state for task ${taskHandle}`)
   }
   return taskState
 }
@@ -42,12 +48,16 @@ export function getTaskState(state: WorkflowState, taskId: string): TaskState {
 export function canStartTask(
   graph: TaskGraph,
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
 ) {
-  const task = getTask(graph, taskId)
+  const task = getTask(graph, taskHandle)
   return task.dependsOn.every(
     (dependency) => state.tasks[dependency]?.status === 'done',
   )
+}
+
+export function getMaxIterations(graph: TaskGraph) {
+  return graph.maxIterations
 }
 
 export function withReviewMetadata(
@@ -91,13 +101,13 @@ export function shouldPassZeroGate(input: ZeroGateInput) {
 
 export function collectDescendants(
   graph: TaskGraph,
-  taskId: string,
+  taskHandle: string,
   seen = new Set<string>(),
 ) {
   for (const task of graph.tasks) {
-    if (task.dependsOn.includes(taskId) && !seen.has(task.id)) {
-      seen.add(task.id)
-      collectDescendants(graph, task.id, seen)
+    if (task.dependsOn.includes(taskHandle) && !seen.has(task.handle)) {
+      seen.add(task.handle)
+      collectDescendants(graph, task.handle, seen)
     }
   }
   return seen

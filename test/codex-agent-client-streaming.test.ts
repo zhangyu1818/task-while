@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
 import { CodexAgentClient, type CodexClientLike } from '../src/agents/codex'
+import { createTaskPrompt } from './task-source-test-helpers'
 
 const mockState = vi.hoisted(() => {
   return {
@@ -56,7 +57,7 @@ test('CodexAgentClient streams events when progress callback is enabled', async 
                     notes: [],
                     status: 'implemented',
                     summary: 'ok',
-                    taskId: 'T001',
+                    taskHandle: 'T001',
                     unresolvedItems: [],
                   }),
                 },
@@ -87,19 +88,8 @@ test('CodexAgentClient streams events when progress callback is enabled', async 
     attempt: 1,
     generation: 1,
     lastFindings: [],
-    plan: '# plan',
-    spec: '# spec',
-    tasksSnippet: '- [ ] T001 Do work',
-    task: {
-      id: 'T001',
-      acceptance: ['works'],
-      dependsOn: [],
-      maxAttempts: 2,
-      parallelizable: false,
-      phase: 'Core',
-      reviewRubric: ['clear'],
-      title: 'Do work',
-    },
+    prompt: createTaskPrompt(),
+    taskHandle: 'T001',
   })
 
   expect(runCallCount).toBe(0)
@@ -110,5 +100,5 @@ test('CodexAgentClient streams events when progress callback is enabled', async 
     'item.completed',
     'turn.completed',
   ])
-  expect(result.taskId).toBe('T001')
+  expect(result.taskHandle).toBe('T001')
 })

@@ -38,8 +38,10 @@ export function createWhileE2eArgs(input: CreateWhileE2eArgsInput) {
     input.command,
     '--feature',
     '001-simple',
-    '--verbose',
   ]
+  if (input.command === 'run') {
+    args.push('--verbose')
+  }
   if (input.command === 'rewind') {
     args.push('--task', input.taskId ?? '')
   }
@@ -239,8 +241,8 @@ async function main() {
       status: 'pending',
     })
     assert.deepEqual(reportAfterReopen.tasks, [
-      { id: 'T001', attempt: 0, generation: 2, status: 'pending' },
-      { id: 'T002', attempt: 0, generation: 2, status: 'pending' },
+      { attempt: 0, generation: 2, status: 'pending', taskHandle: 'T001' },
+      { attempt: 0, generation: 2, status: 'pending', taskHandle: 'T002' },
     ])
 
     process.stdout.write(`${JSON.stringify({ workspaceRoot }, null, 2)}\n`)

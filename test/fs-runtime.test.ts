@@ -6,6 +6,7 @@ import { execa } from 'execa'
 import { expect, test } from 'vitest'
 
 import { createOrchestratorRuntime } from '../src/runtime/fs-runtime'
+import { openTaskSource } from '../src/task-sources/registry'
 
 async function git(root: string, args: string[]) {
   const result = await execa('git', args, { cwd: root })
@@ -31,12 +32,6 @@ async function createWorkspace() {
 ## Phase 1: Core
 
 - [ ] T001 Do work in src/existing.ts
-  - Depends:
-  - Acceptance:
-    - works
-  - Review Rubric:
-    - clear
-  - Max Iterations: 1
 `,
   )
   return { featureDir, root }
@@ -67,12 +62,6 @@ async function createRemoteBackedWorkspace() {
 ## Phase 1: Core
 
 - [ ] T001 Do work in src/existing.ts
-  - Depends:
-  - Acceptance:
-    - works
-  - Review Rubric:
-    - clear
-  - Max Iterations: 1
 `,
   )
 
@@ -88,8 +77,14 @@ async function createRemoteBackedWorkspace() {
 
 test('OrchestratorRuntime returns null when persisted graph, state and report are absent', async () => {
   const { featureDir, root } = await createWorkspace()
+  const taskSource = await openTaskSource('spec-kit', {
+    featureDir,
+    featureId: '001-demo',
+    workspaceRoot: root,
+  })
   const runtime = createOrchestratorRuntime({
     featureDir,
+    taskSource,
     workspaceRoot: root,
   })
 
@@ -106,13 +101,19 @@ test('OrchestratorRuntime clean-worktree check ignores runtime files under .whil
   await git(root, ['branch', '-M', 'main'])
   await git(root, ['add', '.'])
   await git(root, ['commit', '-m', 'Initial commit'])
+  const taskSource = await openTaskSource('spec-kit', {
+    featureDir,
+    featureId: '001-demo',
+    workspaceRoot: root,
+  })
   const runtime = createOrchestratorRuntime({
     featureDir,
+    taskSource,
     workspaceRoot: root,
   })
 
   await runtime.store.saveState({
-    currentTaskId: null,
+    currentTaskHandle: null,
     featureId: '001-demo',
     tasks: {},
   })
@@ -129,8 +130,14 @@ test('OrchestratorRuntime exposes git helpers, requires a fully clean worktree, 
   await writeFile(path.join(root, '.gitignore'), '.while\n')
   await git(root, ['add', '.'])
   await git(root, ['commit', '-m', 'Initial commit'])
+  const taskSource = await openTaskSource('spec-kit', {
+    featureDir,
+    featureId: '001-demo',
+    workspaceRoot: root,
+  })
   const runtime = createOrchestratorRuntime({
     featureDir,
+    taskSource,
     workspaceRoot: root,
   })
 
@@ -145,7 +152,7 @@ test('OrchestratorRuntime exposes git helpers, requires a fully clean worktree, 
     path.join(root, 'src', 'existing.ts'),
     'export const value = 2\n',
   )
-  await runtime.workspace.updateTaskChecks([{ checked: true, taskId: 'T001' }])
+  await runtime.taskSource.applyTaskCompletion('T001')
 
   expect(await runtime.git.getChangedFilesSinceHead()).toEqual([
     'specs/001-demo/tasks.md',
@@ -179,27 +186,20 @@ test('OrchestratorRuntime exposes git helpers, requires a fully clean worktree, 
   ).rejects.toThrow()
 })
 
-test('OrchestratorRuntime loads task context, marks missing code, updates checkboxes and appends events', async () => {
+test('OrchestratorRuntime delegates completion markers to task source and appends events', async () => {
   const { featureDir, root } = await createWorkspace()
+  const taskSource = await openTaskSource('spec-kit', {
+    featureDir,
+    featureId: '001-demo',
+    workspaceRoot: root,
+  })
   const runtime = createOrchestratorRuntime({
     featureDir,
+    taskSource,
     workspaceRoot: root,
   })
 
-  const context = await runtime.workspace.loadTaskContext({
-    id: 'T001',
-    acceptance: ['works'],
-    dependsOn: [],
-    maxAttempts: 1,
-    parallelizable: false,
-    phase: 'Core',
-    reviewRubric: ['clear'],
-    title: 'Do work',
-  })
-
-  expect(context.tasksSnippet).toMatch(/T001/)
-
-  await runtime.workspace.updateTaskChecks([{ checked: true, taskId: 'T001' }])
+  await runtime.taskSource.applyTaskCompletion('T001')
   const tasksMd = await readFile(path.join(featureDir, 'tasks.md'), 'utf8')
   expect(tasksMd).toMatch(/- \[X\] T001/)
 
@@ -207,7 +207,7 @@ test('OrchestratorRuntime loads task context, marks missing code, updates checkb
     attempt: 1,
     detail: 'done',
     generation: 1,
-    taskId: 'T001',
+    taskHandle: 'T001',
     timestamp: '2026-03-22T00:00:00.000Z',
     type: 'attempt_started',
   })
@@ -220,8 +220,14 @@ test('OrchestratorRuntime loads task context, marks missing code, updates checkb
 
 test('OrchestratorRuntime can restore a task branch from origin when the local branch is missing', async () => {
   const { featureDir, root } = await createRemoteBackedWorkspace()
+  const taskSource = await openTaskSource('spec-kit', {
+    featureDir,
+    featureId: '001-demo',
+    workspaceRoot: root,
+  })
   const runtime = createOrchestratorRuntime({
     featureDir,
+    taskSource,
     workspaceRoot: root,
   })
 

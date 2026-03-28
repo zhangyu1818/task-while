@@ -1,8 +1,12 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
+import {
+  createOrchestratorRuntimeStub,
+  createTaskSourceSessionStub,
+} from './orchestrator-runtime-test-helpers'
+
 import type { CodexAgentClientOptions } from '../src/agents/codex'
 import type { ImplementerProvider, ReviewerProvider } from '../src/agents/types'
-import type { OrchestratorRuntime } from '../src/core/runtime'
 import type { TaskGraph, WorkspaceContext } from '../src/types'
 import type {
   WorkflowConfig,
@@ -23,14 +27,44 @@ function createWorkflowRoleConfig(
   }
 }
 
-const mockState = vi.hoisted(() => {
+const mockState = (() => {
+  const taskSource = createTaskSourceSessionStub({
+    applyTaskCompletion: vi.fn(async () => {}),
+    buildCommitSubject: vi.fn(() => 'Task T001: Demo'),
+    getCompletionCriteria: vi.fn(async () => []),
+    getTaskDependencies: vi.fn(() => []),
+    isTaskCompleted: vi.fn(async () => false),
+    listTasks: vi.fn(() => []),
+    resolveTaskSelector: vi.fn((selector: string) => selector),
+    revertTaskCompletion: vi.fn(async () => {}),
+    buildImplementPrompt: vi.fn(async () => ({
+      instructions: [],
+      sections: [],
+    })),
+    buildReviewPrompt: vi.fn(async () => ({
+      instructions: [],
+      sections: [],
+    })),
+  })
+  const runtime = createOrchestratorRuntimeStub({
+    taskSource,
+    git: {
+      requireCleanWorktree: vi.fn(async () => {}),
+    },
+  })
   return {
     callSequence: [] as string[],
     codexInstances: [] as MockCodexInstance[],
+    runtime,
     runWorkflowCalls: [] as unknown[],
+    taskSource,
     workflowConfigCalls: [] as string[],
     workflowConfigError: null as Error | null,
     config: {
+      task: {
+        maxIterations: 5,
+        source: 'spec-kit',
+      },
       workflow: {
         mode: 'direct',
         roles: {
@@ -41,17 +75,11 @@ const mockState = vi.hoisted(() => {
     } as WorkflowConfig,
     graph: {
       featureId: '001-demo',
+      maxIterations: 5,
       tasks: [],
     } as TaskGraph,
-    runtime: {
-      store: {},
-      workspace: {},
-      git: {
-        requireCleanWorktree: vi.fn(async () => {}),
-      },
-    } as unknown as OrchestratorRuntime,
   }
-})
+})()
 
 vi.mock('../src/workflow/config', () => {
   return {
@@ -78,7 +106,7 @@ vi.mock('../src/agents/codex', () => {
             notes: [],
             status: 'implemented' as const,
             summary: 'unused',
-            taskId: 'T001',
+            taskHandle: 'T001',
             unresolvedItems: [],
           }
         },
@@ -87,7 +115,7 @@ vi.mock('../src/agents/codex', () => {
             findings: [],
             overallRisk: 'low' as const,
             summary: 'unused',
-            taskId: 'T001',
+            taskHandle: 'T001',
             verdict: 'pass' as const,
             acceptanceChecks: [
               {
@@ -108,9 +136,18 @@ vi.mock('../src/agents/codex', () => {
   }
 })
 
-vi.mock('../src/core/task-normalizer', () => {
+vi.mock('../src/task-sources/registry', () => {
   return {
-    normalizeTaskGraph: vi.fn(async () => {
+    openTaskSource: vi.fn(async () => {
+      mockState.callSequence.push('task-source')
+      return mockState.taskSource
+    }),
+  }
+})
+
+vi.mock('../src/core/task-topology', () => {
+  return {
+    buildTaskTopology: vi.fn(() => {
       mockState.callSequence.push('graph')
       return mockState.graph
     }),
@@ -133,7 +170,7 @@ vi.mock('../src/core/orchestrator', () => {
       mockState.runWorkflowCalls.push(input)
       return {
         state: {
-          currentTaskId: null,
+          currentTaskHandle: null,
           featureId: '001-demo',
           tasks: {},
         },
@@ -155,10 +192,7 @@ function createContext(): WorkspaceContext {
   return {
     featureDir: '/tmp/specs/001-demo',
     featureId: '001-demo',
-    planPath: '/tmp/specs/001-demo/plan.md',
     runtimeDir: '/tmp/specs/001-demo/.while',
-    specPath: '/tmp/specs/001-demo/spec.md',
-    tasksPath: '/tmp/specs/001-demo/tasks.md',
     workspaceRoot: '/tmp',
   }
 }
@@ -167,6 +201,10 @@ beforeEach(() => {
   mockState.callSequence = []
   mockState.codexInstances = []
   mockState.config = {
+    task: {
+      maxIterations: 5,
+      source: 'spec-kit',
+    },
     workflow: {
       mode: 'direct',
       roles: {
@@ -193,7 +231,7 @@ test('runCommand resolves default Codex workflow and forwards untilTaskId', asyn
   expect(mockState.runWorkflowCalls[0]).toMatchObject({
     graph: mockState.graph,
     runtime: mockState.runtime,
-    untilTaskId: 'T002',
+    untilTaskHandle: 'T002',
     workflow: {
       preset: {
         mode: 'direct',
@@ -260,6 +298,7 @@ test('runCommand loads workflow config before creating runtime', async () => {
   expect(mockState.workflowConfigCalls).toEqual(['/tmp'])
   expect(mockState.callSequence).toEqual([
     'config',
+    'task-source',
     'runtime',
     'graph',
     'workflow',

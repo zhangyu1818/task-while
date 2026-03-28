@@ -24,7 +24,8 @@ test('codex remote reviewer approves when the latest thumbs-up wins', async () =
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reactions: [
         {
@@ -66,7 +67,8 @@ test('codex remote reviewer ignores stale thumbs-up from a previous attempt on t
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:02:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reactions: [
         {
@@ -89,7 +91,8 @@ test('codex remote reviewer rejects when active feedback is newer than approval'
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reactions: [
         {
@@ -131,7 +134,8 @@ test('codex remote reviewer upgrades changes requested feedback to high risk', a
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reviewSummaries: [
         {
@@ -165,7 +169,8 @@ test('codex remote reviewer ignores resolved and outdated thread comments', asyn
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reviewThreads: [
         {
@@ -213,7 +218,8 @@ test('codex remote reviewer only keeps the latest active comment from each threa
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T08:00:00.000Z',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reviewThreads: [
         {
@@ -247,5 +253,65 @@ test('codex remote reviewer only keeps the latest active comment from each threa
   if (result.kind === 'rejected') {
     expect(result.review.findings).toHaveLength(1)
     expect(result.review.summary).toBe('latest thread feedback')
+  }
+})
+
+test('codex remote reviewer emits a fallback acceptance check when completion criteria is empty on approval', async () => {
+  const reviewer = createCodexRemoteReviewerProvider()
+  const task = createGraph().tasks[0]!
+
+  const result = await reviewer.evaluatePullRequestReview({
+    checkpointStartedAt: '2026-03-25T08:00:00.000Z',
+    completionCriteria: [],
+    taskHandle: task.handle,
+    pullRequest: createSnapshot({
+      reactions: [
+        {
+          content: '+1',
+          createdAt: '2026-03-25T08:05:00.000Z',
+          userLogin: 'chatgpt-codex-connector[bot]',
+        },
+      ],
+    }),
+  })
+
+  expect(result.kind).toBe('approved')
+  if (result.kind === 'approved') {
+    expect(result.review.acceptanceChecks).toHaveLength(1)
+  }
+})
+
+test('codex remote reviewer emits a fallback acceptance check when completion criteria is empty on rejection', async () => {
+  const reviewer = createCodexRemoteReviewerProvider()
+  const task = createGraph().tasks[0]!
+
+  const result = await reviewer.evaluatePullRequestReview({
+    checkpointStartedAt: '2026-03-25T08:00:00.000Z',
+    completionCriteria: [],
+    taskHandle: task.handle,
+    pullRequest: createSnapshot({
+      reviewThreads: [
+        {
+          id: 'thread-empty-criteria',
+          isOutdated: false,
+          isResolved: false,
+          comments: [
+            {
+              body: 'please fix this edge case',
+              createdAt: '2026-03-25T08:05:00.000Z',
+              line: 18,
+              path: 'src/greeting.ts',
+              url: 'https://example.com/thread/empty-criteria',
+              userLogin: 'chatgpt-codex-connector[bot]',
+            },
+          ],
+        },
+      ],
+    }),
+  })
+
+  expect(result.kind).toBe('rejected')
+  if (result.kind === 'rejected') {
+    expect(result.review.acceptanceChecks).toHaveLength(1)
   }
 })

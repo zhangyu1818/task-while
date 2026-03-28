@@ -19,8 +19,8 @@ import {
   type reviewFindingSchema,
   type reworkTaskStateSchema,
   type runningTaskStateSchema,
-  type taskDefinitionSchema,
   type taskStateSchema,
+  type taskTopologyEntrySchema,
 } from './model'
 import { parseWithSchema } from './shared'
 
@@ -118,7 +118,7 @@ export type ReplanTaskState = z.infer<typeof replanTaskStateSchema>
 export type ReworkTaskState = z.infer<typeof reworkTaskStateSchema>
 export type RunningStage = z.infer<typeof runningTaskStateSchema>['stage']
 export type RunningTaskState = z.infer<typeof runningTaskStateSchema>
-export type TaskDefinition = z.infer<typeof taskDefinitionSchema>
+export type TaskTopologyEntry = z.infer<typeof taskTopologyEntrySchema>
 export type TaskGraph = z.infer<typeof taskGraphSchema>
 export type TaskState = z.infer<typeof taskStateSchema>
 export type TaskStatus = z.infer<typeof taskStateSchema>['status']

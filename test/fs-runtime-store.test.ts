@@ -25,12 +25,6 @@ async function createWorkspace() {
 ## Phase 1: Core
 
 - [ ] T001 Do work in src/existing.ts
-  - Depends:
-  - Acceptance:
-    - works
-  - Review Rubric:
-    - clear
-  - Max Iterations: 2
 `,
   )
   return { featureDir, root }
@@ -45,21 +39,17 @@ test('OrchestratorRuntime persists graph, state, report and per-attempt artifact
 
   const graph = {
     featureId: '001-demo',
+    maxIterations: 5,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['works'],
+        commitSubject: 'Task T001: Do work',
         dependsOn: [],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['clear'],
-        title: 'Do work',
+        handle: 'T001',
       },
     ],
   }
   const state = {
-    currentTaskId: null,
+    currentTaskHandle: null,
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -85,12 +75,12 @@ test('OrchestratorRuntime persists graph, state, report and per-attempt artifact
     },
     tasks: [
       {
-        id: 'T001',
         attempt: 1,
         commitSha: 'commit-1',
         generation: 2,
         lastReviewVerdict: 'pass' as const,
         status: 'done' as const,
+        taskHandle: 'T001',
       },
     ],
   }
@@ -103,14 +93,14 @@ test('OrchestratorRuntime persists graph, state, report and per-attempt artifact
     commitSha: 'commit-1',
     createdAt: '2026-03-22T00:00:00.000Z',
     generation: 2,
-    taskId: 'T001',
+    taskHandle: 'T001',
     result: {
       assumptions: [],
       needsHumanAttention: false,
       notes: [],
       status: 'implemented',
       summary: 'implemented',
-      taskId: 'T001',
+      taskHandle: 'T001',
       unresolvedItems: [],
     },
   })
@@ -119,12 +109,12 @@ test('OrchestratorRuntime persists graph, state, report and per-attempt artifact
     commitSha: 'commit-1',
     createdAt: '2026-03-22T00:00:02.000Z',
     generation: 2,
-    taskId: 'T001',
+    taskHandle: 'T001',
     result: {
       findings: [],
       overallRisk: 'low',
       summary: 'ok',
-      taskId: 'T001',
+      taskHandle: 'T001',
       verdict: 'pass',
       acceptanceChecks: [
         {
@@ -139,7 +129,7 @@ test('OrchestratorRuntime persists graph, state, report and per-attempt artifact
     attempt: 1,
     createdAt: '2026-03-22T00:00:03.000Z',
     generation: 2,
-    taskId: 'T001',
+    taskHandle: 'T001',
     result: {
       commitSha: 'commit-1',
       summary: 'integrated',
@@ -153,23 +143,23 @@ test('OrchestratorRuntime persists graph, state, report and per-attempt artifact
     runtime.store.loadImplementArtifact({
       attempt: 1,
       generation: 2,
-      taskId: 'T001',
+      taskHandle: 'T001',
     }),
   ).resolves.toMatchObject({
     attempt: 1,
     generation: 2,
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
   await expect(
     runtime.store.loadReviewArtifact({
       attempt: 1,
       generation: 2,
-      taskId: 'T001',
+      taskHandle: 'T001',
     }),
   ).resolves.toMatchObject({
     attempt: 1,
     generation: 2,
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
   expect(runtime.github).toBeDefined()
 
@@ -217,7 +207,7 @@ test('OrchestratorRuntime persists graph, state, report and per-attempt artifact
   expect(JSON.parse(graphJson)).toEqual(graph)
   expect(JSON.parse(stateJson)).toEqual(state)
   expect(JSON.parse(reportJson)).toEqual(report)
-  expect(JSON.parse(implementJson)).toMatchObject({ taskId: 'T001' })
-  expect(JSON.parse(reviewJson)).toMatchObject({ taskId: 'T001' })
-  expect(JSON.parse(integrateJson)).toMatchObject({ taskId: 'T001' })
+  expect(JSON.parse(implementJson)).toMatchObject({ taskHandle: 'T001' })
+  expect(JSON.parse(reviewJson)).toMatchObject({ taskHandle: 'T001' })
+  expect(JSON.parse(integrateJson)).toMatchObject({ taskHandle: 'T001' })
 })

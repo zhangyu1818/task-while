@@ -145,14 +145,22 @@ function signalSeverity(signal: FeedbackSignal): 'high' | 'medium' {
   return 'medium'
 }
 
+function normalizedCompletionCriteria(input: PullRequestReviewInput) {
+  if (input.completionCriteria.length !== 0) {
+    return input.completionCriteria
+  }
+  return [`Task ${input.taskHandle} matches the current task requirements`]
+}
+
 function buildApprovedReview(input: PullRequestReviewInput): ReviewOutput {
+  const completionCriteria = normalizedCompletionCriteria(input)
   return {
     findings: [],
     overallRisk: 'low',
     summary: `Remote reviewer ${CODEX_REVIEWER_ACTOR} approved the pull request`,
-    taskId: input.task.id,
+    taskHandle: input.taskHandle,
     verdict: 'pass',
-    acceptanceChecks: input.task.acceptance.map((criterion) => ({
+    acceptanceChecks: completionCriteria.map((criterion) => ({
       criterion,
       note: `Remote reviewer ${CODEX_REVIEWER_ACTOR} approved the pull request`,
       status: 'pass' as const,
@@ -164,6 +172,7 @@ function buildRejectedReview(
   input: PullRequestReviewInput,
   feedbackSignals: FeedbackSignal[],
 ): ReviewOutput {
+  const completionCriteria = normalizedCompletionCriteria(input)
   const findings: ReviewFinding[] = feedbackSignals.map((signal) => {
     const path = 'path' in signal && signal.path ? signal.path : undefined
     const issue = signal.body.trim() || 'Remote reviewer requested changes'
@@ -176,9 +185,9 @@ function buildRejectedReview(
   })
   return {
     findings,
-    taskId: input.task.id,
+    taskHandle: input.taskHandle,
     verdict: 'rework',
-    acceptanceChecks: input.task.acceptance.map((criterion) => ({
+    acceptanceChecks: completionCriteria.map((criterion) => ({
       criterion,
       note: 'Remote review left active feedback',
       status: 'unclear' as const,

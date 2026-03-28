@@ -10,8 +10,6 @@ export interface ResolveWorkspaceContextInput {
   feature?: string | undefined
 }
 
-const requiredFeatureFiles = ['spec.md', 'plan.md', 'tasks.md'] as const
-
 async function resolveWorkspaceRoot(cwd: string) {
   const workspaceRoot = path.resolve(cwd)
   const specsPath = path.join(workspaceRoot, 'specs')
@@ -58,19 +56,6 @@ function matchFeatureByPrefix(featureDirs: string[], branch: string) {
   return featureDirs.find((feature) => feature.startsWith(`${prefix}-`)) ?? null
 }
 
-async function assertRequiredFeatureFiles(
-  featureDir: string,
-  featureId: string,
-) {
-  for (const fileName of requiredFeatureFiles) {
-    const filePath = path.join(featureDir, fileName)
-    const fileExists = await fsExtra.pathExists(filePath)
-    if (!fileExists) {
-      throw new Error(`Feature ${featureId} is missing ${fileName}`)
-    }
-  }
-}
-
 export async function resolveWorkspaceContext(
   input: ResolveWorkspaceContextInput,
 ): Promise<WorkspaceContext> {
@@ -99,14 +84,14 @@ export async function resolveWorkspaceContext(
   }
 
   const featureDir = path.join(workspaceRoot, 'specs', featureId)
-  await assertRequiredFeatureFiles(featureDir, featureId)
+  const featureExists = await fsExtra.pathExists(featureDir)
+  if (!featureExists) {
+    throw new Error(`Feature directory does not exist: ${featureId}`)
+  }
   return {
     featureDir,
     featureId,
-    planPath: path.join(featureDir, 'plan.md'),
     runtimeDir: path.join(featureDir, '.while'),
-    specPath: path.join(featureDir, 'spec.md'),
-    tasksPath: path.join(featureDir, 'tasks.md'),
     workspaceRoot,
   }
 }

@@ -47,7 +47,7 @@ test('rewindCommand hard-resets code and rebuilds runtime from surviving commits
   providerState.queue.push(
     new ScriptedWorkflowProvider(
       async (input) => {
-        if (input.task.id === 'T001') {
+        if (input.taskHandle === 'T001') {
           await writeFile(
             path.join(root, 'src', 'greeting.js'),
             'exports.buildGreeting = () => "Hello, world!"\n',
@@ -103,8 +103,8 @@ test('rewindCommand hard-resets code and rebuilds runtime from surviving commits
   })
   expect(report.summary.finalStatus).toBe('in_progress')
   expect(report.tasks).toEqual([
-    { id: 'T001', attempt: 0, generation: 2, status: 'pending' },
-    { id: 'T002', attempt: 0, generation: 2, status: 'pending' },
+    { attempt: 0, generation: 2, status: 'pending', taskHandle: 'T001' },
+    { attempt: 0, generation: 2, status: 'pending', taskHandle: 'T002' },
   ])
 })
 

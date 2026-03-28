@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 interface RewindCall {
   context: unknown
-  taskId: string
+  taskHandle: string
 }
 
 const mockState = vi.hoisted(() => {
@@ -20,10 +20,7 @@ vi.mock('../src/runtime/workspace-resolver', () => {
       return {
         featureDir: '/tmp/specs/001-demo',
         featureId: '001-demo',
-        planPath: '/tmp/specs/001-demo/plan.md',
         runtimeDir: '/tmp/specs/001-demo/.while',
-        specPath: '/tmp/specs/001-demo/spec.md',
-        tasksPath: '/tmp/specs/001-demo/tasks.md',
         workspaceRoot: '/tmp/workspace',
       }
     }),
@@ -41,9 +38,9 @@ vi.mock('../src/commands/run', () => {
 
 vi.mock('../src/commands/rewind', () => {
   return {
-    rewindCommand: vi.fn(async (context, taskId) => {
-      mockState.rewindCalls.push({ context, taskId })
-      return { rewound: taskId }
+    rewindCommand: vi.fn(async (context, taskHandle) => {
+      mockState.rewindCalls.push({ context, taskHandle })
+      return { rewound: taskHandle }
     }),
   }
 })
@@ -120,7 +117,7 @@ test('runCli dispatches rewind command and requires task id', async () => {
   await runCli(['rewind', '--feature', '001-demo', '--task', 'T001'])
 
   expect(mockState.rewindCalls[0]).toMatchObject({
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   await expect(runCli(['rewind'])).rejects.toThrow(/Missing --task/)

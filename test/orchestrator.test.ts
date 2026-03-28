@@ -35,8 +35,8 @@ test('runWorkflow finalizes tasks, commits each done task, and records commitSha
   expect(store.implementArtifacts).toHaveLength(2)
   expect(store.reviewArtifacts).toHaveLength(2)
   expect(workspace.checkboxUpdates.flat()).toEqual([
-    { checked: true, taskId: 'T001' },
-    { checked: true, taskId: 'T002' },
+    { checked: true, taskHandle: 'T001' },
+    { checked: true, taskHandle: 'T002' },
   ])
   expect(git.commitMessages).toEqual([
     'Task T001: Implement greeting',
@@ -90,8 +90,16 @@ test('runWorkflow loads per-task context and passes git-based changed files into
     workflow: createWorkflow(provider),
   })
 
-  expect(provider.implementInputs[0]?.plan).toContain('# plan for T001')
-  expect(provider.implementInputs[1]?.plan).toContain('# plan for T002')
+  expect(
+    provider.implementInputs[0]?.prompt.sections.find(
+      (section) => section.title === 'Plan',
+    )?.content,
+  ).toContain('# plan for T001')
+  expect(
+    provider.implementInputs[1]?.prompt.sections.find(
+      (section) => section.title === 'Plan',
+    )?.content,
+  ).toContain('# plan for T002')
   expect(provider.reviewInputs[0]?.actualChangedFiles).toEqual([
     'src/greeting.ts',
   ])
@@ -103,6 +111,7 @@ test('runWorkflow loads per-task context and passes git-based changed files into
 test('runWorkflow carries review findings into the next implement attempt', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 5,
     tasks: [createGraph().tasks[0]!],
   }
   const findings = [
@@ -124,7 +133,7 @@ test('runWorkflow carries review findings into the next implement attempt', asyn
         findings,
         overallRisk: 'medium',
         summary: 'retry with edge-case handling',
-        taskId: 'T001',
+        taskHandle: 'T001',
         verdict: 'rework',
         acceptanceChecks: [
           {
@@ -152,6 +161,7 @@ test('runWorkflow carries review findings into the next implement attempt', asyn
 test('runWorkflow resumes a persisted rework task with its last findings', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 5,
     tasks: [createGraph().tasks[0]!],
   }
   const findings = [
@@ -164,7 +174,7 @@ test('runWorkflow resumes a persisted rework task with its last findings', async
   ]
   const { runtime, store } = createRuntime()
   store.state = {
-    currentTaskId: null,
+    currentTaskHandle: null,
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -195,8 +205,17 @@ test('runWorkflow resumes a persisted rework task with its last findings', async
 test('runWorkflow retries after review rework results before later success', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 5,
     tasks: [createGraph().tasks[0]!],
   }
+  const findings = [
+    {
+      file: 'src/greeting.ts',
+      fixHint: 'retry',
+      issue: 'needs work',
+      severity: 'medium' as const,
+    },
+  ]
   const { runtime } = createRuntime()
   const provider = new ScriptedWorkflowProvider(
     [
@@ -204,7 +223,20 @@ test('runWorkflow retries after review rework results before later success', asy
       createImplement('T001', 'src/greeting.ts'),
     ],
     [
-      createReview('T001', 'buildGreeting works', 'rework'),
+      {
+        findings,
+        overallRisk: 'medium',
+        summary: 'retry',
+        taskHandle: 'T001',
+        verdict: 'rework',
+        acceptanceChecks: [
+          {
+            criterion: 'buildGreeting works',
+            note: 'fix needed',
+            status: 'fail',
+          },
+        ],
+      },
       createReview('T001', 'buildGreeting works'),
     ],
   )
@@ -216,6 +248,8 @@ test('runWorkflow retries after review rework results before later success', asy
   })
 
   expect(provider.reviewInputs).toHaveLength(2)
+  expect(provider.reviewInputs[0]?.lastFindings).toEqual([])
+  expect(provider.reviewInputs[1]?.lastFindings).toEqual(findings)
   expect(result.state.tasks.T001).toMatchObject({ status: 'done' })
 })
 

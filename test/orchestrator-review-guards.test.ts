@@ -12,26 +12,17 @@ import {
 test('runWorkflow stops scheduling after a task blocks the workflow', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
       {
-        id: 'T002',
-        acceptance: ['buildFarewell works'],
+        commitSubject: 'Task T002: Implement farewell',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement farewell',
+        handle: 'T002',
       },
     ],
   }
@@ -68,19 +59,15 @@ test('runWorkflow stops scheduling after a task blocks the workflow', async () =
   expect(git.commitMessages).toEqual([])
 })
 
-test('runWorkflow rejects review outputs whose taskId does not match the current task', async () => {
+test('runWorkflow rejects review outputs whose taskHandle does not match the current task', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
@@ -99,26 +86,22 @@ test('runWorkflow rejects review outputs whose taskId does not match the current
 
   expect(result.summary.finalStatus).toBe('blocked')
   expect(result.state.tasks.T001).toMatchObject({
-    reason: 'Review taskId mismatch: expected T001, received T999',
+    reason: 'Review taskHandle mismatch: expected T001, received T999',
     status: 'blocked',
   })
   expect(store.reviewArtifacts).toHaveLength(0)
   expect(git.commitMessages).toEqual([])
 })
 
-test('runWorkflow rejects implement outputs whose taskId does not match the current task', async () => {
+test('runWorkflow rejects implement outputs whose taskHandle does not match the current task', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
@@ -137,7 +120,7 @@ test('runWorkflow rejects implement outputs whose taskId does not match the curr
 
   expect(result.summary.finalStatus).toBe('blocked')
   expect(result.state.tasks.T001).toMatchObject({
-    reason: 'Implement taskId mismatch: expected T001, received T999',
+    reason: 'Implement taskHandle mismatch: expected T001, received T999',
     status: 'blocked',
   })
   expect(store.implementArtifacts).toHaveLength(0)

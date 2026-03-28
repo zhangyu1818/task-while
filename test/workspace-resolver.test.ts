@@ -117,7 +117,7 @@ test('resolveWorkspaceContext throws a clear error when cwd/specs is missing', a
   ).rejects.toThrow(/current working directory.*specs/i)
 })
 
-test('resolveWorkspaceContext rejects features missing spec.md', async () => {
+test('resolveWorkspaceContext does not validate source files like spec.md', async () => {
   const root = await createWorkspace(['001-demo'], {
     omitFeatureFiles: ['spec.md'],
   })
@@ -126,10 +126,12 @@ test('resolveWorkspaceContext rejects features missing spec.md', async () => {
     resolveWorkspaceContext({
       cwd: root,
     }),
-  ).rejects.toThrow(/001-demo.*spec\.md/i)
+  ).resolves.toMatchObject({
+    featureId: '001-demo',
+  })
 })
 
-test('resolveWorkspaceContext rejects features missing plan.md', async () => {
+test('resolveWorkspaceContext does not validate source files like plan.md', async () => {
   const root = await createWorkspace(['001-demo'], {
     omitFeatureFiles: ['plan.md'],
   })
@@ -138,10 +140,12 @@ test('resolveWorkspaceContext rejects features missing plan.md', async () => {
     resolveWorkspaceContext({
       cwd: root,
     }),
-  ).rejects.toThrow(/001-demo.*plan\.md/i)
+  ).resolves.toMatchObject({
+    featureId: '001-demo',
+  })
 })
 
-test('resolveWorkspaceContext rejects features missing tasks.md', async () => {
+test('resolveWorkspaceContext does not validate source files like tasks.md', async () => {
   const root = await createWorkspace(['001-demo'], {
     omitFeatureFiles: ['tasks.md'],
   })
@@ -150,5 +154,7 @@ test('resolveWorkspaceContext rejects features missing tasks.md', async () => {
     resolveWorkspaceContext({
       cwd: root,
     }),
-  ).rejects.toThrow(/001-demo.*tasks\.md/i)
+  ).resolves.toMatchObject({
+    featureId: '001-demo',
+  })
 })

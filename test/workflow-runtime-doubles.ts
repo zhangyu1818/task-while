@@ -1,32 +1,26 @@
-import type {
-  WorkflowStore,
-  WorkspaceTaskCheckUpdate,
-} from '../src/core/runtime'
+import type { WorkflowStore } from '../src/core/runtime'
+import type { TaskPrompt } from '../src/task-sources/types'
 import type {
   FinalReport,
   ImplementArtifact,
   IntegrateArtifact,
   ReviewArtifact,
-  TaskContext,
-  TaskDefinition,
   TaskGraph,
   WorkflowEvent,
   WorkflowState,
 } from '../src/types'
 
-export interface PerTaskTaskContextSource {
+export interface PerTaskPromptSource {
   kind: 'per-task'
-  value: Record<string, TaskContext>
+  value: Record<string, TaskPrompt>
 }
 
-export interface SingleTaskContextSource {
+export interface SinglePromptSource {
   kind: 'single'
-  value: TaskContext
+  value: TaskPrompt
 }
 
-export type TaskContextSource =
-  | PerTaskTaskContextSource
-  | SingleTaskContextSource
+export type TaskPromptSource = PerTaskPromptSource | SinglePromptSource
 
 export interface CheckoutBranchOptions {
   create?: boolean
@@ -40,7 +34,7 @@ export interface CommitTaskInput {
 export interface AttemptArtifactKeyInput {
   attempt: number
   generation: number
-  taskId: string
+  taskHandle: string
 }
 
 export class FakeGit {
@@ -155,7 +149,7 @@ export class InMemoryStore implements WorkflowStore {
     return (
       this.implementArtifacts.find(
         (item) =>
-          item.taskId === key.taskId &&
+          item.taskHandle === key.taskHandle &&
           item.generation === key.generation &&
           item.attempt === key.attempt,
       ) ?? null
@@ -165,7 +159,7 @@ export class InMemoryStore implements WorkflowStore {
     return (
       this.reviewArtifacts.find(
         (item) =>
-          item.taskId === key.taskId &&
+          item.taskHandle === key.taskHandle &&
           item.generation === key.generation &&
           item.attempt === key.attempt,
       ) ?? null
@@ -195,7 +189,7 @@ export class InMemoryStore implements WorkflowStore {
   public async saveImplementArtifact(artifact: ImplementArtifact) {
     const index = this.implementArtifacts.findIndex(
       (item) =>
-        item.taskId === artifact.taskId &&
+        item.taskHandle === artifact.taskHandle &&
         item.generation === artifact.generation &&
         item.attempt === artifact.attempt,
     )
@@ -209,7 +203,7 @@ export class InMemoryStore implements WorkflowStore {
   public async saveIntegrateArtifact(artifact: IntegrateArtifact) {
     const index = this.integrateArtifacts.findIndex(
       (item) =>
-        item.taskId === artifact.taskId &&
+        item.taskHandle === artifact.taskHandle &&
         item.generation === artifact.generation &&
         item.attempt === artifact.attempt,
     )
@@ -227,7 +221,7 @@ export class InMemoryStore implements WorkflowStore {
   public async saveReviewArtifact(artifact: ReviewArtifact) {
     const index = this.reviewArtifacts.findIndex(
       (item) =>
-        item.taskId === artifact.taskId &&
+        item.taskHandle === artifact.taskHandle &&
         item.generation === artifact.generation &&
         item.attempt === artifact.attempt,
     )
@@ -240,31 +234,5 @@ export class InMemoryStore implements WorkflowStore {
 
   public async saveState(state: WorkflowState) {
     this.state = state
-  }
-}
-
-export class InMemoryWorkspace {
-  public readonly checkboxUpdates: WorkspaceTaskCheckUpdate[][] = []
-  public constructor(private readonly taskContext: TaskContextSource) {}
-  public async isTaskChecked(taskId: string) {
-    const latest = this.checkboxUpdates
-      .flat()
-      .findLast((item) => item.taskId === taskId)
-    return latest?.checked ?? false
-  }
-
-  public async loadTaskContext(task: TaskDefinition) {
-    if (this.taskContext.kind === 'single') {
-      return this.taskContext.value
-    }
-    const context = this.taskContext.value[task.id]
-    if (!context) {
-      throw new Error(`Missing task context for ${task.id}`)
-    }
-    return context
-  }
-
-  public async updateTaskChecks(updates: WorkspaceTaskCheckUpdate[]) {
-    this.checkboxUpdates.push(updates)
   }
 }

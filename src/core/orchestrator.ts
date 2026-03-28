@@ -20,14 +20,14 @@ export interface WorkflowRunResult {
 export interface RunWorkflowInput {
   graph: TaskGraph
   runtime: OrchestratorRuntime
-  untilTaskId?: string
+  untilTaskHandle?: string
   workflow: WorkflowRuntime
 }
 
 export interface RewindTaskInput {
   loadGraph: () => Promise<TaskGraph>
   runtime: OrchestratorRuntime
-  taskId: string
+  taskHandle: string
 }
 
 export async function runWorkflow(
@@ -52,8 +52,8 @@ export async function runWorkflow(
     report.summary.finalStatus !== 'replan_required'
   ) {
     if (
-      input.untilTaskId &&
-      state.tasks[input.untilTaskId]?.status === 'done'
+      input.untilTaskHandle &&
+      state.tasks[input.untilTaskHandle]?.status === 'done'
     ) {
       break
     }
@@ -91,7 +91,7 @@ export async function runWorkflow(
       graph: input.graph,
       runtime: input.runtime,
       state,
-      task,
+      taskHandle: task,
       workflow,
     })
     report = next.report
@@ -109,10 +109,10 @@ export async function rewindTask(input: RewindTaskInput) {
   if (!state) {
     throw new Error('Cannot rewind before workflow state exists')
   }
-  const targetTask = state.tasks[input.taskId]
+  const targetTask = state.tasks[input.taskHandle]
   if (targetTask?.status !== 'done') {
     throw new Error(
-      `Task ${input.taskId} is not completed and cannot be rewound`,
+      `Task ${input.taskHandle} is not completed and cannot be rewound`,
     )
   }
 
@@ -127,7 +127,7 @@ export async function rewindTask(input: RewindTaskInput) {
   const rewoundTaskIds: string[] = []
 
   for (const task of graph.tasks) {
-    const previousTask = state.tasks[task.id]
+    const previousTask = state.tasks[task.handle]
     if (!previousTask) {
       continue
     }
@@ -136,16 +136,17 @@ export async function rewindTask(input: RewindTaskInput) {
         previousTask.commitSha,
       )
       if (isAncestorOfHead) {
-        nextState.tasks[task.id] = previousTask
+        nextState.tasks[task.handle] = previousTask
         continue
       }
-      rewoundTaskIds.push(task.id)
-      nextState.tasks[task.id] = {
+      rewoundTaskIds.push(task.handle)
+      nextState.tasks[task.handle] = {
         attempt: 0,
         generation: previousTask.generation + 1,
-        invalidatedBy: task.id === input.taskId ? null : input.taskId,
         lastFindings: [],
         status: 'pending',
+        invalidatedBy:
+          task.handle === input.taskHandle ? null : input.taskHandle,
       }
     }
   }
@@ -156,13 +157,13 @@ export async function rewindTask(input: RewindTaskInput) {
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
       generation: taskState.generation,
-      taskId,
+      taskHandle: taskId,
       timestamp: now(),
-      type: taskId === input.taskId ? 'task_rewound' : 'task_invalidated',
+      type: taskId === input.taskHandle ? 'task_rewound' : 'task_invalidated',
       detail:
-        taskId === input.taskId
+        taskId === input.taskHandle
           ? 'rewound manually'
-          : `invalidated by rewind of ${input.taskId}`,
+          : `invalidated by rewind of ${input.taskHandle}`,
     })
   }
   await persistState(input.runtime, graph, nextState)

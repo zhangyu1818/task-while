@@ -10,9 +10,7 @@ import {
   overallRiskValues,
   reviewVerdictValues,
   runningStageValues,
-  storyIdSchema,
-  taskIdPattern,
-  taskIdSchema,
+  taskHandleSchema,
   taskStatusValues,
   uniqueStringArray,
   workflowEventTypeValues,
@@ -35,63 +33,33 @@ export const acceptanceCheckSchema = z
   })
   .strict()
 
-export const taskDefinitionSchema = z
+export const taskTopologyEntrySchema = z
   .object({
-    id: taskIdSchema,
-    acceptance: uniqueStringArray('acceptance criterion', { minItems: 1 }),
-    allowedTools: uniqueStringArray('allowed tool').optional(),
-    description: z.string().optional(),
-    goal: nonEmptyStringSchema.optional(),
-    maxAttempts: z.number().int().min(1).max(20),
-    metadata: z.record(z.unknown()).optional(),
-    parallelizable: z.boolean(),
-    phase: nonEmptyStringSchema,
-    reviewRubric: uniqueStringArray('review rubric', { minItems: 1 }),
-    storyId: storyIdSchema.nullable().optional(),
-    title: nonEmptyStringSchema,
-    dependsOn: uniqueStringArray('dependency task id').superRefine(
-      (items, ctx) => {
-        for (const [index, item] of items.entries()) {
-          if (!taskIdPattern.test(item)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: `Invalid dependency task id: ${item}`,
-              path: [index],
-            })
-          }
-        }
-      },
-    ),
+    commitSubject: nonEmptyStringSchema,
+    dependsOn: uniqueStringArray('dependency task handle'),
+    handle: taskHandleSchema,
   })
   .strict()
 
 export const taskGraphSchema = z
   .object({
     featureId: nonEmptyStringSchema,
-    version: z.number().int().min(1).optional(),
-    source: z
-      .object({
-        plan: nonEmptyStringSchema.optional(),
-        spec: nonEmptyStringSchema.optional(),
-        tasksMd: nonEmptyStringSchema.optional(),
-      })
-      .strict()
-      .optional(),
+    maxIterations: z.number().int().min(1).max(20),
     tasks: z
-      .array(taskDefinitionSchema)
+      .array(taskTopologyEntrySchema)
       .min(1)
       .superRefine((tasks, ctx) => {
         const seen = new Set<string>()
         for (const [index, task] of tasks.entries()) {
-          if (seen.has(task.id)) {
+          if (seen.has(task.handle)) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              message: `Duplicate task id: ${task.id}`,
-              path: [index, 'id'],
+              message: `Duplicate task handle: ${task.handle}`,
+              path: [index, 'handle'],
             })
             continue
           }
-          seen.add(task.id)
+          seen.add(task.handle)
         }
       }),
   })
@@ -104,7 +72,7 @@ export const implementOutputSchemaInternal = z
     notes: uniqueStringArray('note'),
     status: z.enum(implementStatusValues),
     summary: nonEmptyStringSchema,
-    taskId: taskIdSchema,
+    taskHandle: taskHandleSchema,
     unresolvedItems: uniqueStringArray('unresolved item'),
   })
   .strict()
@@ -115,7 +83,7 @@ export const reviewOutputSchemaInternal = z
     findings: z.array(reviewFindingSchema),
     overallRisk: z.enum(overallRiskValues),
     summary: nonEmptyStringSchema,
-    taskId: taskIdSchema,
+    taskHandle: taskHandleSchema,
     verdict: z.enum(reviewVerdictValues),
   })
   .strict()
@@ -124,7 +92,7 @@ const taskStateBaseSchema = z
   .object({
     attempt: z.number().int().min(0),
     generation: z.number().int().min(1),
-    invalidatedBy: taskIdSchema.nullable(),
+    invalidatedBy: taskHandleSchema.nullable(),
     lastFindings: z.array(reviewFindingSchema),
     lastReviewVerdict: z.enum(reviewVerdictValues).optional(),
   })
@@ -181,19 +149,9 @@ export const taskStateSchema = z.discriminatedUnion('status', [
 
 export const workflowStateSchema = z
   .object({
-    currentTaskId: taskIdSchema.nullable(),
+    currentTaskHandle: taskHandleSchema.nullable(),
     featureId: nonEmptyStringSchema,
-    tasks: z.record(taskStateSchema).superRefine((tasks, ctx) => {
-      for (const taskId of Object.keys(tasks)) {
-        if (!taskIdPattern.test(taskId)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `Invalid task id key: ${taskId}`,
-            path: [taskId],
-          })
-        }
-      }
-    }),
+    tasks: z.record(taskStateSchema),
   })
   .strict()
 
@@ -204,7 +162,7 @@ export const implementArtifactSchema = z
     createdAt: dateTimeSchema,
     generation: z.number().int().min(1),
     result: implementOutputSchemaInternal,
-    taskId: taskIdSchema,
+    taskHandle: taskHandleSchema,
   })
   .strict()
 
@@ -215,7 +173,7 @@ export const reviewArtifactSchema = z
     createdAt: dateTimeSchema,
     generation: z.number().int().min(1),
     result: reviewOutputSchemaInternal,
-    taskId: taskIdSchema,
+    taskHandle: taskHandleSchema,
   })
   .strict()
 
@@ -224,7 +182,7 @@ export const integrateArtifactSchema = z
     attempt: z.number().int().min(1),
     createdAt: dateTimeSchema,
     generation: z.number().int().min(1),
-    taskId: taskIdSchema,
+    taskHandle: taskHandleSchema,
     result: z
       .object({
         commitSha: nonEmptyStringSchema,
@@ -239,7 +197,7 @@ export const workflowEventSchema = z
     attempt: z.number().int().min(0),
     detail: z.string().optional(),
     generation: z.number().int().min(1),
-    taskId: taskIdSchema,
+    taskHandle: taskHandleSchema,
     timestamp: dateTimeSchema,
     type: z.enum(workflowEventTypeValues),
   })
@@ -247,13 +205,13 @@ export const workflowEventSchema = z
 
 export const finalReportTaskSchema = z
   .object({
-    id: taskIdSchema,
     attempt: z.number().int().min(0),
     commitSha: nonEmptyStringSchema.optional(),
     generation: z.number().int().min(1),
     lastReviewVerdict: z.enum(reviewVerdictValues).optional(),
     reason: nonEmptyStringSchema.optional(),
     status: z.enum(taskStatusValues),
+    taskHandle: taskHandleSchema,
   })
   .strict()
 

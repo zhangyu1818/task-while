@@ -20,8 +20,16 @@ const workflowRolesSchema = z
   })
   .strict()
 
+const taskConfigSchema = z
+  .object({
+    maxIterations: z.number().int().min(1).max(20).default(5),
+    source: z.string().trim().min(1).default('spec-kit'),
+  })
+  .strict()
+
 const workflowConfigSchema = z
   .object({
+    task: taskConfigSchema.default({}),
     workflow: z
       .object({
         mode: workflowModeSchema.default('direct'),
@@ -50,7 +58,13 @@ export interface WorkflowSettingsConfig {
   roles: WorkflowRolesConfig
 }
 
+export interface TaskSettingsConfig {
+  maxIterations: number
+  source: string
+}
+
 export interface WorkflowConfig {
+  task: TaskSettingsConfig
   workflow: WorkflowSettingsConfig
 }
 
@@ -72,6 +86,10 @@ export async function loadWorkflowConfig(
   const parsedConfig = workflowConfigSchema.parse(rawConfig)
 
   return {
+    task: {
+      maxIterations: parsedConfig.task.maxIterations,
+      source: parsedConfig.task.source,
+    },
     workflow: {
       mode: parsedConfig.workflow.mode,
       roles: parsedConfig.workflow.roles,

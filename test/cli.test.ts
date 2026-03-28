@@ -7,8 +7,9 @@ import { execa } from 'execa'
 import { expect, test } from 'vitest'
 
 import { runWorkflow } from '../src/core/orchestrator'
-import { normalizeTaskGraph } from '../src/core/task-normalizer'
+import { buildTaskTopology } from '../src/core/task-topology'
 import { createOrchestratorRuntime } from '../src/runtime/fs-runtime'
+import { openTaskSource } from '../src/task-sources/registry'
 import {
   createWorkflow,
   ScriptedWorkflowProvider,
@@ -50,12 +51,6 @@ async function createWorkspaceWithOptions(
 ## Phase 1: Setup
 
 - [ ] T001 Create parser in src/parser.ts
-  - Depends:
-  - Acceptance:
-    - parser exists
-  - Review Rubric:
-    - naming clarity
-  - Max Iterations: 2
 `,
     )
   }
@@ -97,11 +92,13 @@ test('spec-while rewind works when run from the workspace root', async () => {
   const runtime = createOrchestratorRuntime({
     featureDir,
     workspaceRoot: root,
+    taskSource: await openTaskSource('spec-kit', {
+      featureDir,
+      featureId: '001-demo',
+      workspaceRoot: root,
+    }),
   })
-  const graph = await normalizeTaskGraph({
-    featureDir,
-    tasksPath: path.join(featureDir, 'tasks.md'),
-  })
+  const graph = buildTaskTopology(runtime.taskSource, '001-demo', 5)
   await runWorkflow({
     graph,
     runtime,
@@ -114,7 +111,7 @@ test('spec-while rewind works when run from the workspace root', async () => {
             notes: [],
             status: 'implemented',
             summary: 'done',
-            taskId: 'T001',
+            taskHandle: 'T001',
             unresolvedItems: [],
           },
         ],
@@ -123,7 +120,7 @@ test('spec-while rewind works when run from the workspace root', async () => {
             findings: [],
             overallRisk: 'low',
             summary: 'ok',
-            taskId: 'T001',
+            taskHandle: 'T001',
             verdict: 'pass',
             acceptanceChecks: [
               {

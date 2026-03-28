@@ -9,8 +9,8 @@ dist/
 .DS_Store
 .env*
 .idea/
-.spec-kit/
-spec-kit/
+/.spec-kit/
+/spec-kit/
 .vscode/
 docs/superpowers/plans/
 npm-debug.log*

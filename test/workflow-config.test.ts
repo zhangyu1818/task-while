@@ -32,6 +32,10 @@ test('loadWorkflowConfig defaults to direct codex roles when while.yaml is absen
   const config = await loadWorkflowConfig(workspaceRoot)
 
   expect(config).toEqual({
+    task: {
+      maxIterations: 5,
+      source: 'spec-kit',
+    },
     workflow: {
       mode: 'direct',
       roles: {
@@ -58,6 +62,10 @@ test('loadWorkflowConfig parses configured role providers from yaml mappings', a
   const config = await loadWorkflowConfig(workspaceRoot)
 
   expect(config).toEqual({
+    task: {
+      maxIterations: 5,
+      source: 'spec-kit',
+    },
     workflow: {
       mode: 'direct',
       roles: {
@@ -78,6 +86,8 @@ test('loadWorkflowConfig parses pull-request mode without rewriting it to direct
       '  roles:',
       '    implementer: { provider: codex }',
       '    reviewer: { provider: claude }',
+      'task:',
+      '  maxIterations: 7',
       '',
     ].join('\n'),
   )
@@ -85,11 +95,39 @@ test('loadWorkflowConfig parses pull-request mode without rewriting it to direct
   const config = await loadWorkflowConfig(workspaceRoot)
 
   expect(config).toEqual({
+    task: {
+      maxIterations: 7,
+      source: 'spec-kit',
+    },
     workflow: {
       mode: 'pull-request',
       roles: {
         implementer: { provider: 'codex' },
         reviewer: { provider: 'claude' },
+      },
+    },
+  })
+})
+
+test('loadWorkflowConfig preserves a custom task source string while keeping spec-kit as the default', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    ['task:', '  source: openspec', ''].join('\n'),
+  )
+
+  const config = await loadWorkflowConfig(workspaceRoot)
+
+  expect(config).toEqual({
+    task: {
+      maxIterations: 5,
+      source: 'openspec',
+    },
+    workflow: {
+      mode: 'direct',
+      roles: {
+        implementer: { provider: 'codex' },
+        reviewer: { provider: 'codex' },
       },
     },
   })

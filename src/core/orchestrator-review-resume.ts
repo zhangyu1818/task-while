@@ -12,7 +12,6 @@ import {
 import { shouldPassZeroGate } from './engine-helpers'
 import {
   appendEvent,
-  createTaskCommitMessage,
   now,
   persistCommittedArtifacts,
   persistState,
@@ -43,42 +42,37 @@ export async function resumePullRequestReview(
   input: ResumePullRequestReviewInput,
 ): Promise<null | ResumePullRequestReviewResult> {
   const preset = input.workflow.preset
-  if (!isPullRequestWorkflowPreset(preset) || !input.state.currentTaskId) {
+  if (!isPullRequestWorkflowPreset(preset) || !input.state.currentTaskHandle) {
     return null
   }
 
-  const taskId = input.state.currentTaskId
-  const taskState = input.state.tasks[taskId]
+  const taskHandle = input.state.currentTaskHandle
+  const taskState = input.state.tasks[taskHandle]
   if (taskState?.status !== 'running' || taskState.stage !== 'review') {
-    return null
-  }
-
-  const task = input.graph.tasks.find((item) => item.id === taskId)
-  if (!task) {
     return null
   }
 
   const artifactKey = {
     attempt: taskState.attempt,
     generation: taskState.generation,
-    taskId,
+    taskHandle,
   }
   const implementArtifact =
     await input.runtime.store.loadImplementArtifact(artifactKey)
 
   if (!implementArtifact) {
-    const reason = `Cannot resume review for ${taskId} without a persisted implement artifact`
+    const reason = `Cannot resume review for ${taskHandle} without a persisted implement artifact`
     const nextState = recordReviewFailure(
       input.graph,
       input.state,
-      taskId,
+      taskHandle,
       reason,
     )
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
       detail: reason,
       generation: taskState.generation,
-      taskId,
+      taskHandle,
       timestamp: now(),
       type: 'review_failed',
     })
@@ -89,27 +83,25 @@ export async function resumePullRequestReview(
     }
   }
 
-  const taskContext = await input.runtime.workspace.loadTaskContext(task)
-  const commitMessage = createTaskCommitMessage(task.id, task.title)
+  const commitMessage = input.runtime.taskSource.buildCommitSubject(taskHandle)
   let review
   let reviewPhaseKind: 'approved' | 'rejected'
 
   try {
+    const completionCriteria =
+      await input.runtime.taskSource.getCompletionCriteria(taskHandle)
     const reviewPhase = await preset.review({
       attempt: taskState.attempt,
       commitMessage,
-      generation: taskState.generation,
-      implement: implementArtifact.result,
-      lastFindings: taskState.lastFindings,
+      completionCriteria,
       runtime: input.runtime,
-      task,
-      taskContext,
+      taskHandle,
     })
     reviewPhaseKind = reviewPhase.kind
     review = reviewPhase.review
-    if (review.taskId !== task.id) {
+    if (review.taskHandle !== taskHandle) {
       throw new Error(
-        `Review taskId mismatch: expected ${task.id}, received ${review.taskId}`,
+        `Review taskHandle mismatch: expected ${taskHandle}, received ${review.taskHandle}`,
       )
     }
   } catch (error) {
@@ -117,14 +109,14 @@ export async function resumePullRequestReview(
     const nextState = recordReviewFailure(
       input.graph,
       input.state,
-      task.id,
+      taskHandle,
       reason,
     )
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
       detail: reason,
       generation: taskState.generation,
-      taskId: task.id,
+      taskHandle,
       timestamp: now(),
       type: 'review_failed',
     })
@@ -140,24 +132,24 @@ export async function resumePullRequestReview(
     createdAt: now(),
     generation: taskState.generation,
     result: review,
-    taskId: task.id,
+    taskHandle,
   }
   await input.runtime.store.saveReviewArtifact(reviewArtifact)
   await appendEvent(input.runtime, {
     attempt: taskState.attempt,
     detail: review.summary,
     generation: taskState.generation,
-    taskId: task.id,
+    taskHandle,
     timestamp: now(),
     type: 'review_completed',
   })
 
   if (reviewPhaseKind === 'approved' && shouldPassZeroGate({ review })) {
-    let nextState = recordReviewApproved(input.state, task.id, review)
+    let nextState = recordReviewApproved(input.state, taskHandle, review)
     await appendEvent(input.runtime, {
       attempt: taskState.attempt,
       generation: taskState.generation,
-      taskId: task.id,
+      taskHandle,
       timestamp: now(),
       type: 'integrate_started',
     })
@@ -168,16 +160,21 @@ export async function resumePullRequestReview(
       integrateResult = await input.workflow.preset.integrate({
         commitMessage,
         runtime: input.runtime,
-        taskId: task.id,
+        taskHandle,
       })
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
-      nextState = recordCommitFailure(input.graph, nextState, task.id, reason)
+      nextState = recordCommitFailure(
+        input.graph,
+        nextState,
+        taskHandle,
+        reason,
+      )
       await appendEvent(input.runtime, {
         attempt: taskState.attempt,
         detail: reason,
         generation: taskState.generation,
-        taskId: task.id,
+        taskHandle,
         timestamp: now(),
         type: 'integrate_failed',
       })
@@ -193,9 +190,9 @@ export async function resumePullRequestReview(
       createdAt: now(),
       generation: taskState.generation,
       result: integrateResult.result,
-      taskId: task.id,
+      taskHandle,
     }
-    nextState = recordIntegrateResult(input.graph, nextState, task.id, {
+    nextState = recordIntegrateResult(input.graph, nextState, taskHandle, {
       commitSha: integrateResult.result.commitSha,
       review,
     })
@@ -204,7 +201,7 @@ export async function resumePullRequestReview(
       attempt: taskState.attempt,
       detail: integrateResult.result.summary,
       generation: taskState.generation,
-      taskId: task.id,
+      taskHandle,
       timestamp: now(),
       type: 'integrate_completed',
     })
@@ -220,7 +217,7 @@ export async function resumePullRequestReview(
     }
   }
 
-  const nextState = recordReviewResult(input.graph, input.state, task.id, {
+  const nextState = recordReviewResult(input.graph, input.state, taskHandle, {
     review,
   })
   const report = await persistState(input.runtime, input.graph, nextState)

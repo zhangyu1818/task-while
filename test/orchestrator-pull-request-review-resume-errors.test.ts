@@ -14,17 +14,14 @@ import type {
 import type { WorkflowRuntime } from '../src/workflow/preset'
 
 test('runWorkflow records review_failed when pull-request review resume throws', async () => {
-  const task = {
-    ...createGraph().tasks[0]!,
-    maxAttempts: 1,
-  }
   const graph = {
     featureId: '001-demo',
-    tasks: [task],
+    maxIterations: 1,
+    tasks: [createGraph().tasks[0]!],
   }
   const { runtime, store } = createRuntime()
   store.state = {
-    currentTaskId: 'T001',
+    currentTaskHandle: 'T001',
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -42,7 +39,7 @@ test('runWorkflow records review_failed when pull-request review resume throws',
     createdAt: '2026-03-25T08:00:00.000Z',
     generation: 1,
     result: createImplement('T001', 'src/greeting.ts'),
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   const implement = vi.fn(async () => {
@@ -88,31 +85,28 @@ test('runWorkflow records review_failed when pull-request review resume throws',
   expect(implement).not.toHaveBeenCalled()
   expect(review).toHaveBeenCalledTimes(1)
   expect(integrate).not.toHaveBeenCalled()
-  expect(result.state.currentTaskId).toBeNull()
+  expect(result.state.currentTaskHandle).toBeNull()
   expect(result.state.tasks.T001).toMatchObject({
     reason: 'snapshot exploded',
     status: 'blocked',
   })
   expect(store.events.at(-1)).toMatchObject({
     detail: 'snapshot exploded',
-    taskId: 'T001',
+    taskHandle: 'T001',
     type: 'review_failed',
   })
 })
 
 test('runWorkflow lets pull-request review resume continue when no open PR exists yet', async () => {
-  const task = {
-    ...createGraph().tasks[0]!,
-    maxAttempts: 1,
-  }
   const graph = {
     featureId: '001-demo',
-    tasks: [task],
+    maxIterations: 1,
+    tasks: [createGraph().tasks[0]!],
   }
   const { runtime, store } = createRuntime()
   runtime.github.findOpenPullRequestByHeadBranch = vi.fn(async () => null)
   store.state = {
-    currentTaskId: 'T001',
+    currentTaskHandle: 'T001',
     featureId: '001-demo',
     tasks: {
       T001: {
@@ -130,7 +124,7 @@ test('runWorkflow lets pull-request review resume continue when no open PR exist
     createdAt: '2026-03-25T08:00:00.000Z',
     generation: 1,
     result: createImplement('T001', 'src/greeting.ts'),
-    taskId: 'T001',
+    taskHandle: 'T001',
   })
 
   const implement = vi.fn(async () => {
@@ -141,7 +135,7 @@ test('runWorkflow lets pull-request review resume continue when no open PR exist
     review: {
       overallRisk: 'medium' as const,
       summary: 'review still pending',
-      taskId: 'T001',
+      taskHandle: 'T001',
       verdict: 'rework' as const,
       acceptanceChecks: [
         {

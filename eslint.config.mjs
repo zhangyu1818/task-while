@@ -27,6 +27,14 @@ export default defineConfig(
             skipComments: true,
           },
         ],
+        'no-restricted-syntax': [
+          'error',
+          {
+            selector: 'TSAsExpression > TSUnknownKeyword',
+            message:
+              'Do not use `as unknown as` double assertions. Build a typed object that satisfies the interface instead.',
+          },
+        ],
       },
     },
   ],

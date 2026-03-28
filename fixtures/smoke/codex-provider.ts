@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { CodexAgentClient } from '../../src/agents/codex'
+import { createTaskPrompt } from '../../test/task-source-test-helpers'
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -23,22 +24,16 @@ async function runAgentSmoke() {
     attempt: 1,
     generation: 1,
     lastFindings: [],
-    plan: '# plan',
-    spec: '# spec',
-    tasksSnippet: '- [ ] T001 Inspect repository',
-    task: {
-      id: 'T001',
-      acceptance: ['Return repository metadata'],
-      dependsOn: [],
-      maxAttempts: 1,
-      parallelizable: false,
-      phase: 'Smoke',
-      reviewRubric: ['respond in JSON'],
+    taskHandle: 'T001',
+    prompt: createTaskPrompt({
+      completionCriteria: ['Return repository metadata'],
+      taskHandle: 'T001',
+      tasksSnippet: '- [ ] T001 Inspect repository',
       title: 'Inspect repository',
-    },
+    }),
   })
 
-  assert.equal(result.taskId, 'T001')
+  assert.equal(result.taskHandle, 'T001')
   assert.match(result.summary, /\S/)
   return result
 }

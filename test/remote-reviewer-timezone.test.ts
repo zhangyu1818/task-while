@@ -24,7 +24,8 @@ test('codex remote reviewer compares checkpoint and approval timestamps across t
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T16:00:00+08:00',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reactions: [
         {
@@ -45,7 +46,8 @@ test('codex remote reviewer compares checkpoint and active feedback timestamps a
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T16:00:00+08:00',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reviewThreads: [
         {
@@ -76,7 +78,8 @@ test('codex remote reviewer compares approval and feedback ordering across timez
 
   const result = await reviewer.evaluatePullRequestReview({
     checkpointStartedAt: '2026-03-25T16:00:00+08:00',
-    task,
+    completionCriteria: ['buildGreeting works'],
+    taskHandle: task.handle,
     pullRequest: createSnapshot({
       reactions: [
         {

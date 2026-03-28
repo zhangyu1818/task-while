@@ -1,19 +1,13 @@
 import type { PullRequestSnapshot } from '../core/runtime'
-import type {
-  ImplementOutput,
-  ReviewFinding,
-  ReviewOutput,
-  TaskDefinition,
-} from '../types'
+import type { TaskPrompt } from '../task-sources/types'
+import type { ImplementOutput, ReviewFinding, ReviewOutput } from '../types'
 
 export interface ImplementAgentInput {
   attempt: number
   generation: number
   lastFindings: ReviewFinding[]
-  plan: string
-  spec: string
-  task: TaskDefinition
-  tasksSnippet: string
+  prompt: TaskPrompt
+  taskHandle: string
 }
 
 export interface ReviewAgentInput {
@@ -22,10 +16,8 @@ export interface ReviewAgentInput {
   generation: number
   implement: ImplementOutput
   lastFindings: ReviewFinding[]
-  plan: string
-  spec: string
-  task: TaskDefinition
-  tasksSnippet: string
+  prompt: TaskPrompt
+  taskHandle: string
 }
 
 export interface ImplementerProvider {
@@ -40,8 +32,9 @@ export interface ReviewerProvider {
 
 export interface PullRequestReviewInput {
   checkpointStartedAt: string
+  completionCriteria: string[]
   pullRequest: PullRequestSnapshot
-  task: TaskDefinition
+  taskHandle: string
 }
 
 export interface PullRequestReviewApprovedResult {

@@ -7,16 +7,14 @@ test('buildReviewerPrompt keeps review context path-only', async () => {
     actualChangedFiles: ['src/parser.ts'],
     attempt: 2,
     generation: 3,
-    plan: '# plan',
-    spec: '# spec',
-    tasksSnippet: '- [ ] T001 Create parser',
+    taskHandle: 'T001',
     implement: {
       assumptions: [],
       needsHumanAttention: false,
       notes: [],
       status: 'implemented',
       summary: 'done',
-      taskId: 'T001',
+      taskHandle: 'T001',
       unresolvedItems: [],
     },
     lastFindings: [
@@ -27,41 +25,52 @@ test('buildReviewerPrompt keeps review context path-only', async () => {
         severity: 'medium',
       },
     ],
-    task: {
-      id: 'T001',
-      acceptance: ['parser exists'],
-      dependsOn: [],
-      maxAttempts: 2,
-      parallelizable: false,
-      phase: 'Phase 1',
-      reviewRubric: ['naming clarity'],
-      title: 'Create parser',
+    prompt: {
+      instructions: [
+        'Review only the current task.',
+        'Use the provided source documents to judge whether the task matches the intended implementation.',
+        'Evaluate the task description, source documents, actual changed files, and overall risk.',
+        'Only return verdict "pass" when the current task is satisfied by the implementation.',
+        'acceptanceChecks must stay consistent with the current task description.',
+        'Do not expand the review to unrelated files or repository-wide history.',
+      ],
+      sections: [
+        { content: '- [ ] T001 Create parser', title: 'Task' },
+        { content: 'Phase 1: Core', title: 'Phase' },
+        { content: '# spec', title: 'Spec' },
+        { content: '# plan', title: 'Plan' },
+        {
+          content: '## Phase 1: Core\n\n- [ ] T001 Create parser',
+          title: 'Tasks',
+        },
+      ],
     },
   })
 
   expect(prompt).toMatch(/# spec/)
   expect(prompt).toMatch(/# plan/)
-  expect(prompt).toMatch(/Generation: 3/)
-  expect(prompt).toMatch(/Attempt: 2/)
-  expect(prompt).toMatch(/src\/parser\.ts/)
-  expect(prompt).toMatch(/missed edge case/)
+  expect(prompt).toMatch(/Task Handle: T001/)
+  expect(prompt).toContain('Attempt:\n2')
+  expect(prompt).toContain('Generation:\n3')
+  expect(prompt).toContain('Previous Findings:')
+  expect(prompt).toContain('"file":"src/parser.ts"')
+  expect(prompt).toContain('Actual Changed Files:')
+  expect(prompt).toContain('["src/parser.ts"]')
+  expect(prompt).toContain('Implement Result:')
+  expect(prompt).toContain('"summary":"done"')
+  expect(prompt).toContain('- [ ] T001 Create parser')
+  expect(prompt).toContain('Phase 1: Core')
   expect(prompt).toContain(
-    'Use spec.md, plan.md, and the provided tasks snippet to judge whether the task matches the intended implementation.',
+    'Use the provided source documents to judge whether the task matches the intended implementation.',
   )
   expect(prompt).toContain(
-    'Evaluate task acceptance, spec/plan alignment, actual changed files, and overall risk.',
+    'Evaluate the task description, source documents, actual changed files, and overall risk.',
   )
   expect(prompt).toContain(
-    'Only return verdict "pass" when every acceptance criterion is satisfied.',
+    'Only return verdict "pass" when the current task is satisfied by the implementation.',
   )
   expect(prompt).toContain(
-    'If verdict is "pass", findings must be an empty array and every acceptanceChecks entry must have status "pass".',
-  )
-  expect(prompt).toContain(
-    'If any acceptance criterion is unmet or unclear, verdict must not be "pass".',
-  )
-  expect(prompt).toContain(
-    'acceptanceChecks must cover every acceptance criterion for the current task.',
+    'acceptanceChecks must stay consistent with the current task description.',
   )
   expect(prompt).toContain(
     'Do not expand the review to unrelated files or repository-wide history.',

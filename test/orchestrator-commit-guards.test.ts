@@ -13,16 +13,12 @@ import {
 test('runWorkflow keeps a task done when post-commit artifact persistence fails', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
@@ -64,23 +60,19 @@ test('runWorkflow keeps a task done when post-commit artifact persistence fails'
   })
   expect(store.report?.summary.finalStatus).toBe('completed')
   expect(workspace.checkboxUpdates).toEqual([
-    [{ checked: true, taskId: 'T001' }],
+    [{ checked: true, taskHandle: 'T001' }],
   ])
 })
 
 test('runWorkflow does not re-run a completed task when integrate completion event persistence fails', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
@@ -126,23 +118,19 @@ test('runWorkflow does not re-run a completed task when integrate completion eve
     status: 'done',
   })
   expect(workspace.checkboxUpdates).toEqual([
-    [{ checked: true, taskId: 'T001' }],
+    [{ checked: true, taskHandle: 'T001' }],
   ])
 })
 
 test('runWorkflow records integrate failure events when commit integration fails', async () => {
   const graph = {
     featureId: '001-demo',
+    maxIterations: 1,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 1,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
     ],
   }
@@ -177,8 +165,8 @@ test('runWorkflow records integrate failure events when commit integration fails
     status: 'blocked',
   })
   expect(workspace.checkboxUpdates).toEqual([
-    [{ checked: true, taskId: 'T001' }],
-    [{ checked: false, taskId: 'T001' }],
+    [{ checked: true, taskHandle: 'T001' }],
+    [{ checked: false, taskHandle: 'T001' }],
   ])
 })
 
@@ -196,7 +184,7 @@ test('rewindTask resets rolled-back task commits into a new pending generation',
           findings: [],
           overallRisk: 'low',
           summary: 'ok',
-          taskId: 'T001',
+          taskHandle: 'T001',
           verdict: 'pass',
           acceptanceChecks: [
             {
@@ -210,7 +198,7 @@ test('rewindTask resets rolled-back task commits into a new pending generation',
           findings: [],
           overallRisk: 'low',
           summary: 'ok',
-          taskId: 'T002',
+          taskHandle: 'T002',
           verdict: 'pass',
           acceptanceChecks: [
             {
@@ -232,7 +220,7 @@ test('rewindTask resets rolled-back task commits into a new pending generation',
 
   const rewound = await rewindTask({
     runtime,
-    taskId: 'T001',
+    taskHandle: 'T001',
     loadGraph: async () => graph,
   })
 
@@ -249,8 +237,8 @@ test('rewindTask resets rolled-back task commits into a new pending generation',
   })
   expect(store.report?.summary.finalStatus).toBe('in_progress')
   expect(workspace.checkboxUpdates).toEqual([
-    [{ checked: true, taskId: 'T001' }],
-    [{ checked: true, taskId: 'T002' }],
+    [{ checked: true, taskHandle: 'T001' }],
+    [{ checked: true, taskHandle: 'T002' }],
   ])
 })
 
@@ -260,7 +248,7 @@ test('rewindTask rejects rewinding before any workflow state exists', async () =
   await expect(
     rewindTask({
       runtime,
-      taskId: 'T001',
+      taskHandle: 'T001',
       loadGraph: async () => createGraph(),
     }),
   ).rejects.toThrow(/before workflow state exists/i)

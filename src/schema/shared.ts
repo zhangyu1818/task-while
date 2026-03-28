@@ -1,14 +1,7 @@
 import { z } from 'zod'
 
-export const taskIdPattern = /^T\d{3,}$/
-export const storyIdPattern = /^US\d+$/
 export const nonEmptyStringSchema = z.string().min(1)
-export const taskIdSchema = z
-  .string()
-  .regex(taskIdPattern, 'Task id must match T###')
-export const storyIdSchema = z
-  .string()
-  .regex(storyIdPattern, 'Story id must match US<number>')
+export const taskHandleSchema = nonEmptyStringSchema
 export const dateTimeSchema = z.string().datetime({ offset: true })
 
 export const taskStatusValues = [

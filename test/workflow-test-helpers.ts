@@ -1,10 +1,11 @@
 import { createDirectWorkflowPreset } from '../src/workflow/direct-preset'
+import { createTaskPrompt } from './task-source-test-helpers'
 import { FakeGitHub } from './workflow-github-double'
+import { FakeGit, InMemoryStore } from './workflow-runtime-doubles'
 import {
-  FakeGit,
-  InMemoryStore,
+  InMemoryTaskSource,
   InMemoryWorkspace,
-} from './workflow-runtime-doubles'
+} from './workflow-task-source-doubles'
 
 import type {
   ImplementAgentInput,
@@ -17,7 +18,6 @@ import type {
   ImplementOutput,
   ReviewOutput,
   ReviewVerdict,
-  TaskContext,
   TaskGraph,
 } from '../src/types'
 import type { WorkflowRuntime } from '../src/workflow/preset'
@@ -76,53 +76,47 @@ export function createWorkflow(
 export function createGraph(): TaskGraph {
   return {
     featureId: '001-demo',
+    maxIterations: 5,
     tasks: [
       {
-        id: 'T001',
-        acceptance: ['buildGreeting works'],
+        commitSubject: 'Task T001: Implement greeting',
         dependsOn: [],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement greeting',
+        handle: 'T001',
       },
       {
-        id: 'T002',
-        acceptance: ['buildFarewell works'],
+        commitSubject: 'Task T002: Implement farewell',
         dependsOn: ['T001'],
-        maxAttempts: 2,
-        parallelizable: false,
-        phase: 'Core',
-        reviewRubric: ['simple'],
-        title: 'Implement farewell',
+        handle: 'T002',
       },
     ],
   }
 }
 
-export function createImplement(taskId: string, file: string): ImplementOutput {
+export function createImplement(
+  taskHandle: string,
+  file: string,
+): ImplementOutput {
   void file
   return {
     assumptions: [],
     needsHumanAttention: false,
     notes: [],
     status: 'implemented',
-    summary: `${taskId} done`,
-    taskId,
+    summary: `${taskHandle} done`,
+    taskHandle,
     unresolvedItems: [],
   }
 }
 
 export function createReview(
-  taskId: string,
+  taskHandle: string,
   criterion: string,
   verdict: ReviewVerdict = 'pass',
 ): ReviewOutput {
   return {
     overallRisk: verdict === 'pass' ? 'low' : 'medium',
     summary: verdict === 'pass' ? 'ok' : 'retry',
-    taskId,
+    taskHandle,
     verdict,
     acceptanceChecks: [
       {
@@ -149,7 +143,15 @@ export interface CreateRuntimeInput {
   ancestorCommits?: string[]
   changedFiles?: string[][]
   commitFailures?: (Error | null)[]
-  taskContexts?: Record<string, TaskContext>
+  taskContexts?: Record<
+    string,
+    {
+      plan: string
+      spec: string
+      tasksSnippet: string
+    }
+  >
+  taskPrompts?: Record<string, ReturnType<typeof createTaskPrompt>>
 }
 
 export interface RuntimeBundle {
@@ -163,18 +165,37 @@ export function createRuntime(input?: CreateRuntimeInput): RuntimeBundle {
   const store = new InMemoryStore()
   const workspace = new InMemoryWorkspace({
     kind: 'per-task',
-    value: input?.taskContexts ?? {
-      T001: {
-        plan: '# plan\n',
-        spec: '# spec\n',
-        tasksSnippet: '- [ ] T001 Implement greeting\n',
-      },
-      T002: {
-        plan: '# plan\n',
-        spec: '# spec\n',
-        tasksSnippet: '- [ ] T002 Implement farewell\n',
-      },
-    },
+    value:
+      input?.taskPrompts ??
+      Object.fromEntries(
+        Object.entries(
+          input?.taskContexts ?? {
+            T001: {
+              plan: '# plan\n',
+              spec: '# spec\n',
+              tasksSnippet: '- [ ] T001 Implement greeting\n',
+            },
+            T002: {
+              plan: '# plan\n',
+              spec: '# spec\n',
+              tasksSnippet: '- [ ] T002 Implement farewell\n',
+            },
+          },
+        ).map(([taskHandle, context]) => [
+          taskHandle,
+          createTaskPrompt({
+            instructions: ['Implement only the current task.'],
+            plan: context.plan,
+            spec: context.spec,
+            taskHandle,
+            tasksSnippet: context.tasksSnippet,
+            title:
+              taskHandle === 'T001'
+                ? 'Implement greeting'
+                : 'Implement farewell',
+          }),
+        ]),
+      ),
   })
   const git = new FakeGit(
     input?.changedFiles ?? [['src/greeting.ts'], ['src/farewell.ts']],
@@ -182,6 +203,8 @@ export function createRuntime(input?: CreateRuntimeInput): RuntimeBundle {
     input?.commitFailures ?? [],
   )
   const github = new FakeGitHub()
+  const graph = createGraph()
+  const taskSource = new InMemoryTaskSource(graph, workspace.prompts, workspace)
   return {
     git,
     store,
@@ -190,7 +213,7 @@ export function createRuntime(input?: CreateRuntimeInput): RuntimeBundle {
       git,
       github,
       store,
-      workspace,
+      taskSource,
     },
   }
 }

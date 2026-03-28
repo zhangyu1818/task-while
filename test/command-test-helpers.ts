@@ -4,6 +4,9 @@ import path from 'node:path'
 
 import { execa } from 'execa'
 
+import { readSpecKitCompletionCriteriaFromPrompt } from './spec-kit-task-source-test-helpers'
+import { createTaskPrompt } from './task-source-test-helpers'
+
 import type {
   ImplementAgentInput,
   ImplementerProvider,
@@ -14,7 +17,7 @@ import type { ReviewOutput, WorkspaceContext } from '../src/types'
 
 export interface CreateWorkspaceInput {
   includeSecondTask?: boolean
-  maxAttempts?: number
+  maxIterations?: number
 }
 
 export type ScriptedReviewHandler = (
@@ -43,8 +46,8 @@ export class ScriptedWorkflowProvider
       needsHumanAttention: false,
       notes: [],
       status: 'implemented' as const,
-      summary: `${input.task.id} done`,
-      taskId: input.task.id,
+      summary: `${input.taskHandle} done`,
+      taskHandle: input.taskHandle,
       unresolvedItems: [],
     }
   }
@@ -87,7 +90,7 @@ export async function trackedFilesInHead(root: string) {
 export async function createWorkspace(input?: CreateWorkspaceInput) {
   const root = await mkdtemp(path.join(tmpdir(), 'while-commands-'))
   const featureDir = path.join(root, 'specs', '001-demo')
-  const maxAttempts = input?.maxAttempts ?? 2
+  const maxIterations = input?.maxIterations ?? 2
   const includeSecondTask = input?.includeSecondTask ?? true
   await mkdir(featureDir, { recursive: true })
   await mkdir(path.join(root, 'src'), { recursive: true })
@@ -95,6 +98,10 @@ export async function createWorkspace(input?: CreateWorkspaceInput) {
   await writeFile(
     path.join(root, 'while.yaml'),
     [
+      'task:',
+      `  maxIterations: ${maxIterations}`,
+      '  source: spec-kit',
+      '',
       'workflow:',
       '  mode: direct',
       '  roles:',
@@ -127,23 +134,11 @@ export async function createWorkspace(input?: CreateWorkspaceInput) {
 ## Phase 1: Core
 
 - [ ] T001 Implement greeting in src/greeting.js
-  - Depends:
-  - Acceptance:
-    - buildGreeting returns Hello, world!
-  - Review Rubric:
-    - simple and scoped
-  - Max Iterations: ${maxAttempts}
 ${
   includeSecondTask
     ? `
 
 - [ ] T002 Implement farewell in src/farewell.js
-  - Depends: T001
-  - Acceptance:
-    - buildFarewell returns Bye, world!
-  - Review Rubric:
-    - simple and scoped
-  - Max Iterations: ${maxAttempts}
 `
     : ''
 }
@@ -153,10 +148,7 @@ ${
   const context: WorkspaceContext = {
     featureDir,
     featureId: '001-demo',
-    planPath: path.join(featureDir, 'plan.md'),
     runtimeDir: path.join(featureDir, '.while'),
-    specPath: path.join(featureDir, 'spec.md'),
-    tasksPath: path.join(featureDir, 'tasks.md'),
     workspaceRoot: root,
   }
 
@@ -164,16 +156,21 @@ ${
 }
 
 export function createPassingReview(input: ReviewAgentInput): ReviewOutput {
+  const completionCriteria = readSpecKitCompletionCriteriaFromPrompt(
+    input.prompt,
+  )
   return {
     findings: [],
     overallRisk: 'low' as const,
     summary: 'ok',
-    taskId: input.task.id,
+    taskHandle: input.taskHandle,
     verdict: 'pass' as const,
-    acceptanceChecks: input.task.acceptance.map((criterion) => ({
+    acceptanceChecks: completionCriteria.map((criterion) => ({
       criterion,
       note: 'ok',
       status: 'pass' as const,
     })),
   }
 }
+
+export { createTaskPrompt }

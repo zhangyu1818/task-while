@@ -1,7 +1,7 @@
 import {
   cloneState,
   collectDescendants,
-  getTask,
+  getMaxIterations,
   getTaskState,
   shouldPassZeroGate,
   withReviewMetadata,
@@ -16,18 +16,18 @@ import type {
 
 export function recordReviewApproved(
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
   review: ReviewOutput,
 ): WorkflowState {
   const next = cloneState(state)
-  const taskState = getTaskState(next, taskId)
+  const taskState = getTaskState(next, taskHandle)
   if (taskState.status !== 'running' || taskState.stage !== 'review') {
-    throw new Error(`Task ${taskId} is not reviewing`)
+    throw new Error(`Task ${taskHandle} is not reviewing`)
   }
   if (review.verdict !== 'pass') {
-    throw new Error(`Task ${taskId} review is not approved`)
+    throw new Error(`Task ${taskHandle} review is not approved`)
   }
-  next.tasks[taskId] = {
+  next.tasks[taskHandle] = {
     ...withReviewMetadata(taskState, {
       findings: review.findings,
       reviewVerdict: review.verdict,
@@ -41,19 +41,21 @@ export function recordReviewApproved(
 export function recordIntegrateResult(
   _graph: TaskGraph,
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
   input: RecordIntegrateResultInput,
 ): WorkflowState {
   const next = cloneState(state)
-  const taskState = getTaskState(next, taskId)
+  const taskState = getTaskState(next, taskHandle)
   if (taskState.status !== 'running' || taskState.stage !== 'integrate') {
-    throw new Error(`Task ${taskId} is not integrating`)
+    throw new Error(`Task ${taskHandle} is not integrating`)
   }
   if (!shouldPassZeroGate(input)) {
-    throw new Error(`Task ${taskId} integration requires an approved review`)
+    throw new Error(
+      `Task ${taskHandle} integration requires an approved review`,
+    )
   }
-  next.currentTaskId = null
-  next.tasks[taskId] = {
+  next.currentTaskHandle = null
+  next.tasks[taskHandle] = {
     ...withReviewMetadata(taskState, {
       findings: input.review.findings,
       reviewVerdict: input.review.verdict,
@@ -72,18 +74,17 @@ export interface RecordIntegrateResultInput {
 export function recordCommitFailure(
   graph: TaskGraph,
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
   reason: string,
 ): WorkflowState {
   const next = cloneState(state)
-  const task = getTask(graph, taskId)
-  const taskState = getTaskState(next, taskId)
-  next.currentTaskId = null
+  const taskState = getTaskState(next, taskHandle)
+  next.currentTaskHandle = null
   const metadata = withReviewMetadata(taskState, {
     reviewVerdict: 'pass',
   })
-  next.tasks[taskId] =
-    taskState.attempt >= task.maxAttempts
+  next.tasks[taskHandle] =
+    taskState.attempt >= getMaxIterations(graph)
       ? {
           ...metadata,
           reason,
@@ -99,15 +100,14 @@ export function recordCommitFailure(
 export function recordReviewFailure(
   graph: TaskGraph,
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
   reason: string,
 ): WorkflowState {
   const next = cloneState(state)
-  const task = getTask(graph, taskId)
-  const taskState = getTaskState(next, taskId)
-  next.currentTaskId = null
-  next.tasks[taskId] =
-    taskState.attempt >= task.maxAttempts
+  const taskState = getTaskState(next, taskHandle)
+  next.currentTaskHandle = null
+  next.tasks[taskHandle] =
+    taskState.attempt >= getMaxIterations(graph)
       ? {
           ...withReviewMetadata(taskState, {}),
           reason,
@@ -123,23 +123,23 @@ export function recordReviewFailure(
 export function rewindTaskGeneration(
   graph: TaskGraph,
   state: WorkflowState,
-  taskId: string,
+  taskHandle: string,
 ) {
   const next = cloneState(state)
-  const descendants = collectDescendants(graph, taskId)
-  const resetTaskIds = [taskId, ...descendants]
-  const uncheckedTaskIds: string[] = []
+  const descendants = collectDescendants(graph, taskHandle)
+  const resetTaskHandles = [taskHandle, ...descendants]
+  const uncheckedTaskHandles: string[] = []
 
-  next.currentTaskId = null
-  for (const currentTaskId of resetTaskIds) {
-    const taskState = getTaskState(next, currentTaskId)
+  next.currentTaskHandle = null
+  for (const currentTaskHandle of resetTaskHandles) {
+    const taskState = getTaskState(next, currentTaskHandle)
     if (taskState.status === 'done') {
-      uncheckedTaskIds.push(currentTaskId)
+      uncheckedTaskHandles.push(currentTaskHandle)
     }
-    next.tasks[currentTaskId] = {
+    next.tasks[currentTaskHandle] = {
       attempt: 0,
       generation: taskState.generation + 1,
-      invalidatedBy: currentTaskId === taskId ? null : taskId,
+      invalidatedBy: currentTaskHandle === taskHandle ? null : taskHandle,
       lastFindings: [],
       status: 'pending',
     }
@@ -147,7 +147,7 @@ export function rewindTaskGeneration(
 
   return {
     state: next,
-    uncheckedTaskIds,
+    uncheckedTaskIds: uncheckedTaskHandles,
   }
 }
 
@@ -157,11 +157,11 @@ export function buildReport(
   generatedAt: string,
 ): FinalReport {
   const tasks = graph.tasks.map((task) => {
-    const taskState = getTaskState(state, task.id)
+    const taskState = getTaskState(state, task.handle)
     return {
-      id: task.id,
       attempt: taskState.attempt,
       generation: taskState.generation,
+      taskHandle: task.handle,
       ...('commitSha' in taskState ? { commitSha: taskState.commitSha } : {}),
       ...(taskState.lastReviewVerdict
         ? { lastReviewVerdict: taskState.lastReviewVerdict }
