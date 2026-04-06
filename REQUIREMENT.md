@@ -67,14 +67,14 @@ For `task.source: openspec`, `--feature` identifies the OpenSpec change id.
 
 ## Commands
 
-### `while run`
+### `task-while run`
 
 - initializes `.while` for the feature when no state exists
 - resumes from existing `.while/state.json` when state already exists
 - requires a clean worktree
 - supports `--until-task`
 
-### `while batch`
+### `task-while batch`
 
 - accepts `--config <path>` pointing to a standalone YAML file
 - accepts optional `--verbose` to print per-file failure reasons to `stderr`

@@ -1,6 +1,6 @@
 # task-while
 
-`task-while` is a git-first task orchestrator built around a task source protocol. The published package name is `task-while`, and the CLI binary is `while`.
+`task-while` is a git-first task orchestrator built around a task source protocol. The published package name and CLI binary are both `task-while`.
 
 It reads workflow settings from `while.yaml`, opens the configured task source, executes one task at a time, reviews the result, integrates approved work, and creates one git commit per completed task. The built-in task sources are `spec-kit`, which consumes `spec.md`, `plan.md`, and `tasks.md` under `specs/<feature>/`, and `openspec`, which consumes an OpenSpec change under `openspec/changes/<change>/`.
 
@@ -35,7 +35,7 @@ pnpm add -D task-while
 Run it with:
 
 ```bash
-pnpm exec while run
+pnpm exec task-while run
 ```
 
 ## Configuration
@@ -76,13 +76,13 @@ workflow:
 
 ## Commands
 
-### `while run`
+### `task-while run`
 
 Runs the current feature workflow from the existing `.while` state or initializes a new one. Run it from the workspace root so the current directory contains the source-specific root, such as `specs/` for `spec-kit` or `openspec/changes/` for `openspec`.
 
 ```bash
 cd /path/to/workspace
-pnpm exec while run --feature 001-demo
+pnpm exec task-while run --feature 001-demo
 ```
 
 Useful flags:
@@ -92,13 +92,13 @@ Useful flags:
 - `--until-task <taskSelector>`: stop after the target task reaches `done`
 - `--verbose`: stream agent events to `stderr`
 
-### `while batch`
+### `task-while batch`
 
 Runs a standalone YAML-driven batch job. This command does not read `while.yaml`, does not require `specs/`, and does not use the task-source workflow.
 
 ```bash
 cd /path/to/workspace
-pnpm exec while batch --config ./batch.yaml
+pnpm exec task-while batch --config ./batch.yaml
 ```
 
 Batch config example:
@@ -195,7 +195,7 @@ task:
 Example run:
 
 ```bash
-pnpm exec while run --feature example-change
+pnpm exec task-while run --feature example-change
 ```
 
 Current built-in `openspec` behavior:

@@ -21,7 +21,7 @@
     "git"
   ],
   "bin": {
-    "while": "bin/while.mjs"
+    "task-while": "bin/task-while.mjs"
   },
   "files": [
     "LICENSE",
