@@ -6,9 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { execa } from 'execa'
 import { expect, test } from 'vitest'
 
-const cliEntry = fileURLToPath(
-  new URL('../bin/spec-while.mjs', import.meta.url),
-)
+const cliEntry = fileURLToPath(new URL('../bin/while.mjs', import.meta.url))
 
 async function createWorkspace() {
   return createWorkspaceWithOptions()
@@ -68,7 +66,7 @@ function runCli(args: string[], cwd: string) {
   }))
 }
 
-test('spec-while rejects unknown commands', async () => {
+test('while rejects unknown commands', async () => {
   const { root } = await createWorkspace()
   const result = await runCli(['unknown', '--feature', '001-demo'], root)
 
@@ -76,7 +74,7 @@ test('spec-while rejects unknown commands', async () => {
   expect(result.stderr).toMatch(/unknown command/i)
 })
 
-test('spec-while rejects rewind as an unknown command', async () => {
+test('while rejects rewind as an unknown command', async () => {
   const { root } = await createWorkspace()
   const result = await runCli(['rewind', '--task', 'T001'], root)
 
@@ -84,7 +82,7 @@ test('spec-while rejects rewind as an unknown command', async () => {
   expect(result.stderr).toMatch(/unknown command: rewind/i)
 })
 
-test('spec-while rejects nested cwd values that do not contain specs directly', async () => {
+test('while rejects nested cwd values that do not contain specs directly', async () => {
   const { root } = await createWorkspace()
 
   const result = await runCli(
@@ -96,7 +94,7 @@ test('spec-while rejects nested cwd values that do not contain specs directly', 
   expect(result.stderr).toMatch(/current working directory.*specs/i)
 })
 
-test('spec-while run rejects features missing plan.md', async () => {
+test('while run rejects features missing plan.md', async () => {
   const { root } = await createWorkspaceWithOptions({
     omitFeatureFiles: ['plan.md'],
   })
@@ -107,7 +105,7 @@ test('spec-while run rejects features missing plan.md', async () => {
   expect(result.stderr).toMatch(/001-demo.*plan\.md/i)
 })
 
-test('spec-while batch does not require specs directory', async () => {
+test('while batch does not require specs directory', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'while-batch-cli-'))
   await writeFile(
     path.join(root, 'batch.yaml'),
