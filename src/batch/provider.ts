@@ -57,9 +57,11 @@ class ClaudeBatchStructuredOutputProvider implements BatchStructuredOutputProvid
 
   public constructor(private readonly client: ClaudeAgentClient) {}
 
-  public async runFile() {
-    void this.client
-    throw new Error('claude batch provider is not configured')
+  public async runFile(input: BatchFileInput) {
+    return this.client.invokeStructured<unknown>({
+      outputSchema: input.outputSchema,
+      prompt: buildBatchPrompt(input),
+    })
   }
 }
 
@@ -74,5 +76,9 @@ export function createBatchStructuredOutputProvider(
     )
   }
 
-  return new ClaudeBatchStructuredOutputProvider(new ClaudeAgentClient())
+  return new ClaudeBatchStructuredOutputProvider(
+    new ClaudeAgentClient({
+      workspaceRoot: input.workspaceRoot,
+    }),
+  )
 }
