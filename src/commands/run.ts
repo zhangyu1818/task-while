@@ -1,4 +1,9 @@
 import {
+  createClaudeProvider,
+  type ClaudeAgentEvent,
+  type ClaudeAgentEventHandler,
+} from '../agents/claude'
+import {
   createCodexProvider,
   type CodexThreadEvent,
   type CodexThreadEventHandler,
@@ -89,6 +94,20 @@ function createCodexEventHandler(
   return writeCodexEvent
 }
 
+function writeClaudeEvent(event: ClaudeAgentEvent) {
+  const detail = event.type === 'text' ? ` ${event.delta}` : ''
+  process.stderr.write(`[claude] ${event.type}${detail}\n`)
+}
+
+function createClaudeEventHandler(
+  verbose: boolean | undefined,
+): ClaudeAgentEventHandler | undefined {
+  if (!verbose) {
+    return undefined
+  }
+  return writeClaudeEvent
+}
+
 function createProviderResolver(
   context: WorkspaceContext,
   verbose: boolean | undefined,
@@ -98,24 +117,24 @@ function createProviderResolver(
     ImplementerProvider & ReviewerProvider
   >()
   return (providerName: WorkflowProvider) => {
-    if (providerName === 'claude') {
-      throw new Error(
-        'claude provider is not available in CLI mode because no Claude adapter is configured',
-      )
-    }
     const cached = cache.get(providerName)
     if (cached) {
       return cached
     }
-    const codexEventHandler = createCodexEventHandler(verbose)
-    const provider = createCodexProvider({
-      ...(codexEventHandler
-        ? {
-            onEvent: codexEventHandler,
-          }
-        : {}),
-      workspaceRoot: context.workspaceRoot,
-    })
+    let provider: ImplementerProvider & ReviewerProvider
+    if (providerName === 'claude') {
+      const onEvent = createClaudeEventHandler(verbose)
+      provider = createClaudeProvider({
+        workspaceRoot: context.workspaceRoot,
+        ...(onEvent ? { onEvent } : {}),
+      })
+    } else {
+      const onEvent = createCodexEventHandler(verbose)
+      provider = createCodexProvider({
+        workspaceRoot: context.workspaceRoot,
+        ...(onEvent ? { onEvent } : {}),
+      })
+    }
     cache.set(providerName, provider)
     return provider
   }

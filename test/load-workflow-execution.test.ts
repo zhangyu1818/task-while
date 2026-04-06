@@ -8,15 +8,42 @@ import {
 import type { CodexAgentClientOptions } from '../src/agents/codex'
 import type { ImplementerProvider, ReviewerProvider } from '../src/agents/types'
 import type { TaskGraph, WorkspaceContext } from '../src/types'
-import type {
-  WorkflowConfig,
-  WorkflowProvider,
-  WorkflowRoleConfig,
-} from '../src/workflow/config'
+import type { WorkflowConfig, WorkflowProvider } from '../src/workflow/config'
 
 interface MockCodexInstance {
   options: CodexAgentClientOptions
   provider: ImplementerProvider & ReviewerProvider
+}
+
+function createMockProvider(
+  name: string,
+): ImplementerProvider & ReviewerProvider {
+  return {
+    name,
+    async implement() {
+      return {
+        assumptions: [],
+        needsHumanAttention: false,
+        notes: [],
+        status: 'implemented' as const,
+        summary: 'unused',
+        taskHandle: 'T001',
+        unresolvedItems: [],
+      }
+    },
+    async review() {
+      return {
+        findings: [],
+        overallRisk: 'low' as const,
+        summary: 'unused',
+        taskHandle: 'T001',
+        verdict: 'pass' as const,
+        acceptanceChecks: [
+          { criterion: 'unused', note: 'unused', status: 'pass' as const },
+        ],
+      }
+    },
+  }
 }
 
 function createConfig(input?: {
@@ -25,25 +52,14 @@ function createConfig(input?: {
   reviewer?: WorkflowProvider
 }): WorkflowConfig {
   return {
-    task: {
-      maxIterations: 5,
-      source: 'spec-kit',
-    },
+    task: { maxIterations: 5, source: 'spec-kit' },
     workflow: {
       mode: input?.mode ?? 'direct',
       roles: {
-        implementer: createWorkflowRoleConfig(input?.implementer),
-        reviewer: createWorkflowRoleConfig(input?.reviewer),
+        implementer: { provider: input?.implementer ?? 'codex' },
+        reviewer: { provider: input?.reviewer ?? 'codex' },
       },
     },
-  }
-}
-
-function createWorkflowRoleConfig(
-  provider: WorkflowProvider = 'codex',
-): WorkflowRoleConfig {
-  return {
-    provider,
   }
 }
 
@@ -90,111 +106,61 @@ const mockState = (() => {
   }
 })()
 
-vi.mock('../src/workflow/config', () => {
-  return {
-    loadWorkflowConfig: vi.fn(async (workspaceRoot: string) => {
-      mockState.workflowConfigCalls.push(workspaceRoot)
-      mockState.callSequence.push('config')
-      if (mockState.workflowConfigError) {
-        throw mockState.workflowConfigError
-      }
-      return mockState.config
-    }),
-  }
-})
-
-vi.mock('../src/agents/codex', () => {
-  return {
-    createCodexProvider: vi.fn((options: CodexAgentClientOptions) => {
-      const provider: ImplementerProvider & ReviewerProvider = {
-        name: 'codex',
-        async implement() {
-          return {
-            assumptions: [],
-            needsHumanAttention: false,
-            notes: [],
-            status: 'implemented' as const,
-            summary: 'unused',
-            taskHandle: 'T001',
-            unresolvedItems: [],
-          }
-        },
-        async review() {
-          return {
-            findings: [],
-            overallRisk: 'low' as const,
-            summary: 'unused',
-            taskHandle: 'T001',
-            verdict: 'pass' as const,
-            acceptanceChecks: [
-              {
-                criterion: 'unused',
-                note: 'unused',
-                status: 'pass' as const,
-              },
-            ],
-          }
-        },
-      }
-      mockState.codexInstances.push({
-        options,
-        provider,
-      })
-      return provider
-    }),
-  }
-})
-
-vi.mock('../src/task-sources/registry', () => {
-  return {
-    openTaskSource: vi.fn(async (...args: unknown[]) => {
-      mockState.openTaskSourceCalls.push(args)
-      mockState.callSequence.push('task-source')
-      return mockState.taskSource
-    }),
-  }
-})
-
-vi.mock('../src/core/task-topology', () => {
-  return {
-    buildTaskTopology: vi.fn(() => {
-      mockState.callSequence.push('graph')
-      return mockState.graph
-    }),
-  }
-})
-
-vi.mock('../src/runtime/fs-runtime', () => {
-  return {
-    createOrchestratorRuntime: vi.fn(() => {
-      mockState.callSequence.push('runtime')
-      return mockState.runtime
-    }),
-  }
-})
-
-vi.mock('../src/core/orchestrator', () => {
-  return {
-    runWorkflow: vi.fn(async (input) => {
-      mockState.callSequence.push('workflow')
-      mockState.runWorkflowCalls.push(input)
-      return {
-        state: {
-          currentTaskHandle: null,
-          featureId: '001-demo',
-          tasks: {},
-        },
-        summary: {
-          blockedTasks: 0,
-          completedTasks: 0,
-          finalStatus: 'in_progress',
-          replanTasks: 0,
-          totalTasks: 0,
-        },
-      }
-    }),
-  }
-})
+vi.mock('../src/workflow/config', () => ({
+  loadWorkflowConfig: vi.fn(async (workspaceRoot: string) => {
+    mockState.workflowConfigCalls.push(workspaceRoot)
+    mockState.callSequence.push('config')
+    if (mockState.workflowConfigError) {
+      throw mockState.workflowConfigError
+    }
+    return mockState.config
+  }),
+}))
+vi.mock('../src/agents/codex', () => ({
+  createCodexProvider: vi.fn((options: CodexAgentClientOptions) => {
+    const provider = createMockProvider('codex')
+    mockState.codexInstances.push({ options, provider })
+    return provider
+  }),
+}))
+vi.mock('../src/agents/claude', () => ({
+  createClaudeProvider: vi.fn(() => createMockProvider('claude')),
+}))
+vi.mock('../src/task-sources/registry', () => ({
+  openTaskSource: vi.fn(async (...args: unknown[]) => {
+    mockState.openTaskSourceCalls.push(args)
+    mockState.callSequence.push('task-source')
+    return mockState.taskSource
+  }),
+}))
+vi.mock('../src/core/task-topology', () => ({
+  buildTaskTopology: vi.fn(() => {
+    mockState.callSequence.push('graph')
+    return mockState.graph
+  }),
+}))
+vi.mock('../src/runtime/fs-runtime', () => ({
+  createOrchestratorRuntime: vi.fn(() => {
+    mockState.callSequence.push('runtime')
+    return mockState.runtime
+  }),
+}))
+vi.mock('../src/core/orchestrator', () => ({
+  runWorkflow: vi.fn(async (input) => {
+    mockState.callSequence.push('workflow')
+    mockState.runWorkflowCalls.push(input)
+    return {
+      state: { currentTaskHandle: null, featureId: '001-demo', tasks: {} },
+      summary: {
+        blockedTasks: 0,
+        completedTasks: 0,
+        finalStatus: 'in_progress',
+        replanTasks: 0,
+        totalTasks: 0,
+      },
+    }
+  }),
+}))
 
 const { loadWorkflowExecution } = await import('../src/commands/run')
 
@@ -217,17 +183,14 @@ beforeEach(() => {
   mockState.workflowConfigCalls = []
 })
 
-test('loadWorkflowExecution rejects claude providers before runtime setup because CLI has no adapter path', async () => {
+test('loadWorkflowExecution resolves claude provider in direct mode', async () => {
   const context = createContext()
-  mockState.config = createConfig({ implementer: 'claude' })
+  mockState.config = createConfig({ implementer: 'claude', reviewer: 'claude' })
 
-  await expect(loadWorkflowExecution(context)).rejects.toThrow(
-    /claude provider is not available in cli mode/i,
-  )
+  const execution = await loadWorkflowExecution(context)
 
-  expect(mockState.callSequence).toEqual(['config'])
-  expect(mockState.codexInstances).toHaveLength(0)
-  expect(mockState.runWorkflowCalls).toHaveLength(0)
+  expect(execution.workflow.roles.implementer.name).toBe('claude')
+  expect(execution.workflow.roles.reviewer.name).toBe('claude')
 })
 
 test('loadWorkflowExecution resolves a direct workflow from while.yaml role providers', async () => {
@@ -237,9 +200,7 @@ test('loadWorkflowExecution resolves a direct workflow from while.yaml role prov
 
   expect(mockState.codexInstances).toHaveLength(1)
   expect(execution.workflow).toMatchObject({
-    preset: {
-      mode: 'direct',
-    },
+    preset: { mode: 'direct' },
     roles: {
       implementer: expect.objectContaining({ name: 'codex' }),
       reviewer: expect.objectContaining({ name: 'codex' }),
@@ -259,9 +220,7 @@ test('loadWorkflowExecution selects the pull-request preset when workflow.mode i
   expect(execution.config).toEqual(mockState.config)
   expect(mockState.codexInstances).toHaveLength(1)
   expect(execution.workflow).toMatchObject({
-    preset: {
-      mode: 'pull-request',
-    },
+    preset: { mode: 'pull-request' },
     roles: {
       implementer: expect.objectContaining({ name: 'codex' }),
       reviewer: expect.objectContaining({ name: 'codex' }),
@@ -291,9 +250,7 @@ test('loadWorkflowExecution returns an executable plan with resolved config', as
 
   expect(execution.config).toEqual(mockState.config)
   expect(execution.workflow).toMatchObject({
-    preset: {
-      mode: 'direct',
-    },
+    preset: { mode: 'direct' },
     roles: {
       implementer: expect.objectContaining({ name: 'codex' }),
       reviewer: expect.objectContaining({ name: 'codex' }),

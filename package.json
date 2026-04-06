@@ -48,6 +48,7 @@
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.92",
     "@openai/codex-sdk": "^0.116.0",
     "ajv": "^8.18.0",
     "arg": "^5.0.2",
