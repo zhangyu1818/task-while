@@ -7,6 +7,9 @@ import {
   validateReviewOutput,
 } from '../schema/index'
 
+import type { Options as ClaudeQueryOptions } from '@anthropic-ai/claude-agent-sdk'
+
+import type { ClaudeProviderOptions } from './provider-options'
 import type {
   ImplementAgentInput,
   ImplementerProvider,
@@ -64,7 +67,7 @@ type QueryMessage =
   | QueryResultMessage
   | QueryStreamEventMessage
 
-export interface ClaudeAgentClientOptions {
+export interface ClaudeAgentClientOptions extends ClaudeProviderOptions {
   onEvent?: ClaudeAgentEventHandler
   workspaceRoot: string
 }
@@ -132,19 +135,22 @@ export class ClaudeAgentClient
 
   public async invokeStructured<T>(input: ClaudeStructuredInput): Promise<T> {
     const { query } = await import('@anthropic-ai/claude-agent-sdk')
+    const queryOptions = {
+      allowDangerouslySkipPermissions: true,
+      cwd: this.options.workspaceRoot,
+      includePartialMessages: !!this.options.onEvent,
+      permissionMode: 'bypassPermissions',
+      outputFormat: {
+        schema: input.outputSchema,
+        type: 'json_schema',
+      },
+      ...(this.options.model ? { model: this.options.model } : {}),
+      ...(this.options.effort ? { effort: this.options.effort } : {}),
+    } satisfies ClaudeQueryOptions
 
     const messages = query({
+      options: queryOptions,
       prompt: input.prompt,
-      options: {
-        allowDangerouslySkipPermissions: true,
-        cwd: this.options.workspaceRoot,
-        includePartialMessages: !!this.options.onEvent,
-        permissionMode: 'bypassPermissions',
-        outputFormat: {
-          schema: input.outputSchema,
-          type: 'json_schema',
-        },
-      },
     })
 
     return this.collectStructuredOutput(

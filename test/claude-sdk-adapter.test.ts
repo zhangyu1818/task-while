@@ -122,6 +122,45 @@ test('ClaudeAgentClient.review passes prompt and outputFormat to query and retur
   expect(result.taskHandle).toBe('T001')
 })
 
+test('ClaudeAgentClient passes configured model and effort defaults to query options', async () => {
+  mockState.messages = [
+    {
+      result: 'ok',
+      subtype: 'success',
+      type: 'result',
+      structured_output: {
+        assumptions: [],
+        needsHumanAttention: false,
+        notes: [],
+        status: 'implemented',
+        summary: 'done',
+        taskHandle: 'T001',
+        unresolvedItems: [],
+      },
+    },
+  ]
+
+  const client = new ClaudeAgentClient({
+    effort: 'max',
+    model: 'claude-sonnet-4-6',
+    workspaceRoot: '/tmp/project',
+  })
+
+  await client.implement({
+    attempt: 1,
+    generation: 1,
+    lastFindings: [],
+    prompt: createTaskPrompt(),
+    taskHandle: 'T001',
+  })
+
+  const args = mockState.queryArgs as {
+    options: { effort?: string; model?: string }
+  }
+  expect(args.options.model).toBe('claude-sonnet-4-6')
+  expect(args.options.effort).toBe('max')
+})
+
 test('ClaudeAgentClient throws when query returns error result', async () => {
   mockState.messages = [
     {
@@ -268,7 +307,13 @@ test('ClaudeAgentClient sets includePartialMessages only when onEvent is provide
   })
 
   const args = mockState.queryArgs as {
-    options: { includePartialMessages: boolean }
+    options: {
+      effort?: string
+      includePartialMessages: boolean
+      model?: string
+    }
   }
   expect(args.options.includePartialMessages).toBe(false)
+  expect('model' in args.options).toBe(false)
+  expect('effort' in args.options).toBe(false)
 })

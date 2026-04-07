@@ -8,6 +8,7 @@ import {
   type CodexThreadEvent,
   type CodexThreadEventHandler,
 } from '../agents/codex'
+import { providerOptionsEqual } from '../agents/provider-options'
 import { runWorkflow, type WorkflowRunResult } from '../core/orchestrator'
 import { buildTaskTopology } from '../core/task-topology'
 import { createOrchestratorRuntime } from '../runtime/fs-runtime'
@@ -16,6 +17,7 @@ import {
   loadWorkflowConfig,
   type WorkflowConfig,
   type WorkflowProvider,
+  type WorkflowRoleConfig,
 } from '../workflow/config'
 import {
   createDirectWorkflowPreset,
@@ -53,7 +55,7 @@ export interface ResolveWorkflowRuntimeInput {
 }
 
 export type ProviderResolver = (
-  providerName: WorkflowProvider,
+  role: WorkflowRoleConfig,
 ) => ImplementerProvider & ReviewerProvider
 
 export type RemoteReviewerResolver = (
@@ -116,26 +118,30 @@ function createProviderResolver(
     WorkflowProvider,
     ImplementerProvider & ReviewerProvider
   >()
-  return (providerName: WorkflowProvider) => {
-    const cached = cache.get(providerName)
+  return (role: WorkflowRoleConfig) => {
+    const cached = cache.get(role.provider)
     if (cached) {
       return cached
     }
     let provider: ImplementerProvider & ReviewerProvider
-    if (providerName === 'claude') {
+    if (role.provider === 'claude') {
       const onEvent = createClaudeEventHandler(verbose)
       provider = createClaudeProvider({
+        ...(role.effort ? { effort: role.effort } : {}),
+        ...(role.model ? { model: role.model } : {}),
         workspaceRoot: context.workspaceRoot,
         ...(onEvent ? { onEvent } : {}),
       })
     } else {
       const onEvent = createCodexEventHandler(verbose)
       provider = createCodexProvider({
+        ...(role.effort ? { effort: role.effort } : {}),
+        ...(role.model ? { model: role.model } : {}),
         workspaceRoot: context.workspaceRoot,
         ...(onEvent ? { onEvent } : {}),
       })
     }
-    cache.set(providerName, provider)
+    cache.set(role.provider, provider)
     return provider
   }
 }
@@ -165,15 +171,13 @@ function resolveWorkflowRuntime(
     input.context,
     input.options.verbose,
   )
-  const implementer = resolveProvider(
-    input.config.workflow.roles.implementer.provider,
-  )
+  const implementerRole = input.config.workflow.roles.implementer
+  const reviewerRole = input.config.workflow.roles.reviewer
 
   if (input.config.workflow.mode === 'pull-request') {
     const resolveRemoteReviewer = createRemoteReviewerResolver()
-    const reviewer = resolveRemoteReviewer(
-      input.config.workflow.roles.reviewer.provider,
-    )
+    const reviewer = resolveRemoteReviewer(reviewerRole.provider)
+    const implementer = resolveProvider(implementerRole)
     const roles: WorkflowRoleProviders = {
       implementer,
       reviewer,
@@ -187,9 +191,17 @@ function resolveWorkflowRuntime(
     }
   }
 
-  const reviewer = resolveProvider(
-    input.config.workflow.roles.reviewer.provider,
-  )
+  if (
+    implementerRole.provider === reviewerRole.provider &&
+    !providerOptionsEqual(implementerRole, reviewerRole)
+  ) {
+    throw new Error(
+      `direct workflow roles implementer and reviewer must use matching model and effort when sharing provider ${implementerRole.provider}`,
+    )
+  }
+
+  const implementer = resolveProvider(implementerRole)
+  const reviewer = resolveProvider(reviewerRole)
   const roles: WorkflowRoleProviders = {
     implementer,
     reviewer,

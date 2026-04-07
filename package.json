@@ -26,7 +26,6 @@
   "files": [
     "LICENSE",
     "README.md",
-    "REQUIREMENT.md",
     "bin",
     "src"
   ],

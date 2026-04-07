@@ -7,6 +7,7 @@ import {
   validateReviewOutput,
 } from '../schema/index'
 
+import type { CodexProviderOptions } from './provider-options'
 import type {
   ImplementAgentInput,
   ImplementerProvider,
@@ -92,6 +93,8 @@ export interface CodexThreadLike {
 }
 
 export interface CodexStartThreadOptions {
+  model?: string
+  modelReasoningEffort?: 'high' | 'low' | 'medium' | 'minimal' | 'xhigh'
   workingDirectory: string
 }
 
@@ -99,7 +102,7 @@ export interface CodexClientLike {
   startThread: (options: CodexStartThreadOptions) => CodexThreadLike
 }
 
-export interface CodexAgentClientOptions {
+export interface CodexAgentClientOptions extends CodexProviderOptions {
   onEvent?: CodexThreadEventHandler
   workspaceRoot: string
 }
@@ -177,9 +180,19 @@ export class CodexAgentClient implements ImplementerProvider, ReviewerProvider {
 
   public async invokeStructured<T>(input: CodexStructuredInput): Promise<T> {
     const client = await this.getClient()
-    const thread = client.startThread({
+    const startThreadOptions: CodexStartThreadOptions = {
       workingDirectory: this.options.workspaceRoot,
-    })
+    }
+
+    if (this.options.model) {
+      startThreadOptions.model = this.options.model
+    }
+
+    if (this.options.effort) {
+      startThreadOptions.modelReasoningEffort = this.options.effort
+    }
+
+    const thread = client.startThread(startThreadOptions)
 
     if (this.options.onEvent && thread.runStreamed) {
       return this.collectStreamedTurn<T>(thread, input)

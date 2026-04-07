@@ -3,7 +3,7 @@ import path from 'node:path'
 import { ClaudeAgentClient } from '../agents/claude'
 import { CodexAgentClient } from '../agents/codex'
 
-import type { BatchProviderName } from './config'
+import type { WorkflowRoleProviderOptions } from '../agents/provider-options'
 
 export interface BatchFileInput {
   absoluteFilePath: string
@@ -19,10 +19,10 @@ export interface BatchStructuredOutputProvider {
   runFile: (input: BatchFileInput) => Promise<unknown>
 }
 
-export interface CreateBatchStructuredOutputProviderInput {
-  provider: BatchProviderName
-  workspaceRoot: string
-}
+export type CreateBatchStructuredOutputProviderInput =
+  WorkflowRoleProviderOptions & {
+    workspaceRoot: string
+  }
 
 function buildBatchPrompt(input: BatchFileInput) {
   const relativeToWorkspace = path
@@ -71,6 +71,8 @@ export function createBatchStructuredOutputProvider(
   if (input.provider === 'codex') {
     return new CodexBatchStructuredOutputProvider(
       new CodexAgentClient({
+        ...(input.effort ? { effort: input.effort } : {}),
+        ...(input.model ? { model: input.model } : {}),
         workspaceRoot: input.workspaceRoot,
       }),
     )
@@ -78,6 +80,8 @@ export function createBatchStructuredOutputProvider(
 
   return new ClaudeBatchStructuredOutputProvider(
     new ClaudeAgentClient({
+      ...(input.effort ? { effort: input.effort } : {}),
+      ...(input.model ? { model: input.model } : {}),
       workspaceRoot: input.workspaceRoot,
     }),
   )

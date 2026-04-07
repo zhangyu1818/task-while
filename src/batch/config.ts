@@ -4,6 +4,12 @@ import path from 'node:path'
 import { parse } from 'yaml'
 import { z } from 'zod'
 
+import {
+  claudeProviderOptionsSchema,
+  codexProviderOptionsSchema,
+  type WorkflowRoleProviderOptions,
+} from '../agents/provider-options'
+
 export const batchProviderSchema = z.enum(['claude', 'codex'])
 
 const jsonSchemaSchema = z.custom<Record<string, unknown>>(
@@ -14,25 +20,42 @@ const jsonSchemaSchema = z.custom<Record<string, unknown>>(
   },
 )
 
-const batchConfigSchema = z
+const commonBatchConfigSchema = z
   .object({
     prompt: z.string().trim().min(1),
-    provider: batchProviderSchema,
     schema: jsonSchemaSchema,
     workdir: z.string().trim().min(1).optional(),
   })
   .strict()
 
-export type BatchProviderName = z.infer<typeof batchProviderSchema>
+const batchConfigSchema = z.discriminatedUnion('provider', [
+  z
+    .object({
+      provider: z.literal('claude'),
+    })
+    .extend(claudeProviderOptionsSchema.shape)
+    .extend(commonBatchConfigSchema.shape)
+    .strict(),
+  z
+    .object({
+      provider: z.literal('codex'),
+    })
+    .extend(codexProviderOptionsSchema.shape)
+    .extend(commonBatchConfigSchema.shape)
+    .strict(),
+])
 
-export interface BatchConfig {
+export type BatchProviderName = WorkflowRoleProviderOptions['provider']
+
+interface BatchConfigBase {
   configPath: string
   outputDir: string
   prompt: string
-  provider: BatchProviderName
   schema: Record<string, unknown>
   workdir: string
 }
+
+export type BatchConfig = BatchConfigBase & WorkflowRoleProviderOptions
 
 export interface LoadBatchConfigInput {
   configPath: string
@@ -50,13 +73,27 @@ export async function loadBatchConfig(
   const workdir = parsedConfig.workdir
     ? path.resolve(outputDir, parsedConfig.workdir)
     : path.resolve(input.cwd)
-
-  return {
+  const baseConfig = {
     configPath,
     outputDir,
     prompt: parsedConfig.prompt,
-    provider: parsedConfig.provider,
     schema: parsedConfig.schema,
     workdir,
+  }
+
+  if (parsedConfig.provider === 'claude') {
+    return {
+      ...baseConfig,
+      provider: 'claude',
+      ...(parsedConfig.model ? { model: parsedConfig.model } : {}),
+      ...(parsedConfig.effort ? { effort: parsedConfig.effort } : {}),
+    }
+  }
+
+  return {
+    ...baseConfig,
+    provider: 'codex',
+    ...(parsedConfig.model ? { model: parsedConfig.model } : {}),
+    ...(parsedConfig.effort ? { effort: parsedConfig.effort } : {}),
   }
 }

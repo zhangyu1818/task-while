@@ -40,7 +40,7 @@ pnpm exec task-while run
 
 ## Configuration
 
-`while.yaml` configures the `run` workflow only. When it is absent, the CLI runs `task.source: spec-kit`, `task.maxIterations: 5`, and `workflow.mode: direct` with `codex` for both roles.
+`while.yaml` configures the `run` workflow only. When it is absent, the CLI runs `task.source: spec-kit`, `task.maxIterations: 5`, and `workflow.mode: direct` with `codex` for both roles. Each workflow role accepts provider-specific `model` and `effort`.
 
 ```yaml
 task:
@@ -51,15 +51,23 @@ workflow:
   mode: direct
   roles:
     implementer:
-      provider: codex
+      model: gpt-5-codex
+      effort: high
     reviewer:
-      provider: codex
+      model: gpt-5-codex
+      effort: high
 ```
 
 Current status:
 
+- `workflow.roles.<role>.provider` accepts `codex` or `claude`; when omitted it defaults to `codex`, including roles that only set `model` and/or `effort`
+- `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
+- `claude` `effort` accepts `low`, `medium`, `high`, or `max`
+- `workflow.mode: direct` requires `implementer` and `reviewer` to use identical `model` and `effort` when they share the same provider
 - `workflow.mode: direct` uses a local reviewer
 - `workflow.mode: pull-request` pushes a task branch, polls GitHub PR review from `chatgpt-codex-connector[bot]`, then squash-merges on approval
+- in `workflow.mode: pull-request`, reviewer `provider` still selects the remote reviewer, but any local reviewer `model` and `effort` values are ignored
+- `workflow.mode: pull-request` currently supports only `codex` as the remote reviewer provider
 - `task.maxIterations` applies globally to every task in the selected source session
 
 Example pull-request mode:
@@ -69,10 +77,28 @@ workflow:
   mode: pull-request
   roles:
     implementer:
-      provider: codex
+      provider: claude
+      model: claude-sonnet-4-6
+      effort: max
     reviewer:
       provider: codex
 ```
+
+## Workspace Resolution
+
+`task-while run` resolves the current working directory as the workspace root.
+
+- `task.source: spec-kit` requires `cwd/specs`
+- `task.source: openspec` requires `cwd/openspec/changes`
+- if the required source root is missing, the CLI fails with a clear user-facing error
+
+Feature resolution order:
+
+1. `--feature`
+2. current git branch prefix for `spec-kit`
+3. the only entry under the selected source root
+
+For `task.source: openspec`, `--feature` identifies the OpenSpec change id.
 
 ## Commands
 
@@ -104,7 +130,9 @@ pnpm exec task-while batch --config ./batch.yaml
 Batch config example:
 
 ```yaml
-provider: codex
+provider: claude
+model: claude-sonnet-4-6
+effort: max
 workdir: ./src
 prompt: |
   Read the target file and return structured output for it.
@@ -125,6 +153,10 @@ Batch behavior:
 
 - `workdir` defaults to the current working directory when omitted
 - `provider`, `prompt`, and `schema` are required
+- `model` and `effort` are optional and are forwarded to the selected provider client
+- batch `provider` accepts `codex` or `claude`
+- batch `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
+- batch `claude` `effort` accepts `low`, `medium`, `high`, or `max`
 - each run scans the configured working directory for files
 - execution state is written beside the YAML file in `state.json`
 - structured results are written beside the YAML file in `results.json`
@@ -133,7 +165,6 @@ Batch behavior:
 - when the current `pending` queue is exhausted and `failed` is non-empty, the command persists a recycle transition that moves `failed` back into `pending` for the next round
 - the command exits only when both `pending` and `failed` are empty
 - there is no retry limit for file-level failures; failed files continue to be retried round by round
-- `claude` is accepted as a provider value, but no batch adapter is configured by default in CLI mode
 
 ## Task Lifecycle
 
@@ -143,6 +174,14 @@ Each task follows this lifecycle:
 2. The reviewer evaluates the task-source-built review prompt plus changed-file context and overall risk.
 3. If review is approved, `task-while` asks the task source to apply its completion marker, creates the final integration commit, and records integrate artifacts under `.while`.
 
+Completion requires all of the following:
+
+- review verdict `pass`
+- no findings
+- every acceptance check passing
+
+Review context uses `actualChangedFiles` derived from git diff against `HEAD`. In `pull-request` mode, changed-file context comes from the live PR snapshot instead of the local worktree diff.
+
 In `pull-request` mode:
 
 - review creates or reuses `task/<slug>` and an open PR against `main`
@@ -151,13 +190,16 @@ In `pull-request` mode:
 - review polls every minute with no default timeout
 - review evaluates approval from a fully paginated live GraphQL PR snapshot
 - approval is driven by the freshest `chatgpt-codex-connector[bot]` signal after the checkpoint commit
+- active feedback includes unresolved, non-outdated review threads plus reviewer-authored review summaries and discussion comments after the current checkpoint
 - process restart re-enters `review` or `integrate` and continues the same PR flow
+- if the PR was already squash-merged before state was persisted, integrate treats it as already completed and finalizes local cleanup on resume
 - integrate checks the task source completion marker, creates the final task commit when needed, squash-merges, returns to `main`, and deletes the local task branch
 
 Completion is git-first:
 
 - one completed task = one git commit
 - `.while` is runtime state and is not committed
+- completed task state stores `commitSha`
 
 ## Built-in `spec-kit` Expectations
 
@@ -241,6 +283,8 @@ Important files:
 - `tasks/<taskHandle>/g<generation>/a<attempt>/implement.json`
 - `tasks/<taskHandle>/g<generation>/a<attempt>/review.json`
 - `tasks/<taskHandle>/g<generation>/a<attempt>/integrate.json`
+
+`.while` is runtime state, not the long-term source of truth. Pull-request review recovery reloads persisted `implement` artifacts by `taskHandle`, `generation`, and `attempt`.
 
 `batch` keeps runtime files beside the YAML config:
 
