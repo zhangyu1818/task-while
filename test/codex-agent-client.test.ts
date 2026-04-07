@@ -1,6 +1,10 @@
 import { beforeEach, expect, test, vi } from 'vitest'
 
-import { CodexAgentClient, type CodexClientLike } from '../src/agents/codex'
+import {
+  CodexAgentClient,
+  type CodexClientLike,
+  type CodexStartThreadOptions,
+} from '../src/agents/codex'
 import { createTaskPrompt } from './task-source-test-helpers'
 
 const mockState = vi.hoisted(() => {
@@ -201,5 +205,89 @@ test('CodexAgentClient can invoke standalone structured prompts', async () => {
   })
   expect(result).toEqual({
     summary: 'ok',
+  })
+})
+
+test('CodexAgentClient passes configured model and effort defaults to startThread', async () => {
+  let receivedOptions: CodexStartThreadOptions | undefined
+
+  mockState.client = {
+    startThread(options) {
+      receivedOptions = options
+      return {
+        async run() {
+          return {
+            finalResponse: JSON.stringify({
+              summary: 'ok',
+            }),
+          }
+        },
+      }
+    },
+  }
+
+  const client = new CodexAgentClient({
+    effort: 'high',
+    model: 'gpt-5-codex',
+    workspaceRoot: '/tmp/project',
+  })
+
+  await client.invokeStructured({
+    prompt: 'Summarize the file.',
+    outputSchema: {
+      required: ['summary'],
+      type: 'object',
+      properties: {
+        summary: {
+          type: 'string',
+        },
+      },
+    },
+  })
+
+  expect(receivedOptions).toEqual({
+    model: 'gpt-5-codex',
+    modelReasoningEffort: 'high',
+    workingDirectory: '/tmp/project',
+  })
+})
+
+test('CodexAgentClient only passes workingDirectory to startThread when no defaults are configured', async () => {
+  let receivedOptions: CodexStartThreadOptions | undefined
+
+  mockState.client = {
+    startThread(options) {
+      receivedOptions = options
+      return {
+        async run() {
+          return {
+            finalResponse: JSON.stringify({
+              summary: 'ok',
+            }),
+          }
+        },
+      }
+    },
+  }
+
+  const client = new CodexAgentClient({
+    workspaceRoot: '/tmp/project',
+  })
+
+  await client.invokeStructured({
+    prompt: 'Summarize the file.',
+    outputSchema: {
+      required: ['summary'],
+      type: 'object',
+      properties: {
+        summary: {
+          type: 'string',
+        },
+      },
+    },
+  })
+
+  expect(receivedOptions).toEqual({
+    workingDirectory: '/tmp/project',
   })
 })

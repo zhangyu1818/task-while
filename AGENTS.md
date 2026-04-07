@@ -30,7 +30,7 @@ When documents disagree, resolve them in this order:
 
 1. current code
 2. tests that reflect current code behavior
-3. `REQUIREMENT.md`
+3. `README.md`
 4. other documentation
 
 ## Architecture Expectations

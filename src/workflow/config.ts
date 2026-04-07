@@ -4,19 +4,50 @@ import path from 'node:path'
 import { parse } from 'yaml'
 import { z } from 'zod'
 
-const workflowProviderSchema = z.enum(['claude', 'codex'])
+import {
+  claudeProviderOptionsSchema,
+  codexProviderOptionsSchema,
+  type WorkflowRoleProviderOptions,
+} from '../agents/provider-options'
+
 const workflowModeSchema = z.enum(['direct', 'pull-request'])
 
-const workflowRoleSchema = z
-  .object({
-    provider: workflowProviderSchema.default('codex'),
-  })
-  .strict()
+const defaultWorkflowRole: WorkflowRoleProviderOptions = {
+  provider: 'codex',
+}
+
+const workflowRoleProviderSchema = z.discriminatedUnion('provider', [
+  z
+    .object({
+      provider: z.literal('claude'),
+    })
+    .extend(claudeProviderOptionsSchema.shape)
+    .strict(),
+  z
+    .object({
+      provider: z.literal('codex'),
+    })
+    .extend(codexProviderOptionsSchema.shape)
+    .strict(),
+])
+
+const workflowRoleSchema = z.preprocess((value) => {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const role = value as Record<string, unknown>
+    if (!('provider' in role)) {
+      return {
+        ...role,
+        provider: 'codex',
+      }
+    }
+  }
+  return value
+}, workflowRoleProviderSchema)
 
 const workflowRolesSchema = z
   .object({
-    implementer: workflowRoleSchema.default({}),
-    reviewer: workflowRoleSchema.default({}),
+    implementer: workflowRoleSchema.default(defaultWorkflowRole),
+    reviewer: workflowRoleSchema.default(defaultWorkflowRole),
   })
   .strict()
 
@@ -41,12 +72,10 @@ const workflowConfigSchema = z
   .strict()
   .default({})
 
-export type WorkflowProvider = 'claude' | 'codex'
 export type WorkflowMode = 'direct' | 'pull-request'
 
-export interface WorkflowRoleConfig {
-  provider: WorkflowProvider
-}
+export type WorkflowProvider = WorkflowRoleProviderOptions['provider']
+export type WorkflowRoleConfig = WorkflowRoleProviderOptions
 
 export interface WorkflowRolesConfig {
   implementer: WorkflowRoleConfig

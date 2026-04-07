@@ -109,6 +109,106 @@ test('loadWorkflowConfig parses pull-request mode without rewriting it to direct
   })
 })
 
+test('loadWorkflowConfig parses model and effort for codex and claude roles', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    [
+      'workflow:',
+      '  roles:',
+      '    implementer:',
+      '      provider: codex',
+      '      model: o4-mini',
+      '      effort: medium',
+      '    reviewer:',
+      '      provider: claude',
+      '      model: claude-sonnet-4-6',
+      '      effort: high',
+      '',
+    ].join('\n'),
+  )
+
+  const config = await loadWorkflowConfig(workspaceRoot)
+
+  expect(config.workflow.roles).toEqual({
+    implementer: {
+      effort: 'medium',
+      model: 'o4-mini',
+      provider: 'codex',
+    },
+    reviewer: {
+      effort: 'high',
+      model: 'claude-sonnet-4-6',
+      provider: 'claude',
+    },
+  })
+})
+
+test('loadWorkflowConfig defaults provider to codex when a role only configures model or effort', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    [
+      'workflow:',
+      '  roles:',
+      '    implementer:',
+      '      model: o4-mini',
+      '      effort: medium',
+      '    reviewer:',
+      '      effort: high',
+      '',
+    ].join('\n'),
+  )
+
+  const config = await loadWorkflowConfig(workspaceRoot)
+
+  expect(config.workflow.roles).toEqual({
+    implementer: {
+      effort: 'medium',
+      model: 'o4-mini',
+      provider: 'codex',
+    },
+    reviewer: {
+      effort: 'high',
+      provider: 'codex',
+    },
+  })
+})
+
+test('loadWorkflowConfig rejects provider-specific unsupported effort values', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    [
+      'workflow:',
+      '  roles:',
+      '    implementer:',
+      '      provider: codex',
+      '      effort: max',
+      '',
+    ].join('\n'),
+  )
+
+  await expect(loadWorkflowConfig(workspaceRoot)).rejects.toThrow(/effort/i)
+})
+
+test('loadWorkflowConfig rejects an empty model string', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    [
+      'workflow:',
+      '  roles:',
+      '    implementer:',
+      '      provider: codex',
+      '      model: "   "',
+      '',
+    ].join('\n'),
+  )
+
+  await expect(loadWorkflowConfig(workspaceRoot)).rejects.toThrow(/model/i)
+})
+
 test('loadWorkflowConfig preserves a custom task source string while keeping spec-kit as the default', async () => {
   const workspaceRoot = await createWorkspace()
   await writeFile(
@@ -147,6 +247,6 @@ test('loadWorkflowConfig rejects unknown keys instead of silently defaulting', a
   )
 
   await expect(loadWorkflowConfig(workspaceRoot)).rejects.toThrow(
-    /proivder|unrecognized/i,
+    /proivder|unrecognized|discriminator/i,
   )
 })

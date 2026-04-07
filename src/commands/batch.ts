@@ -220,10 +220,20 @@ export async function runBatchCommand(
   await writeJsonAtomic(statePath, state)
   await writeJsonAtomic(resultsPath, results)
 
-  const provider = createBatchStructuredOutputProvider({
-    provider: config.provider,
-    workspaceRoot: config.workdir,
-  })
+  const provider =
+    config.provider === 'codex'
+      ? createBatchStructuredOutputProvider({
+          provider: 'codex',
+          ...(config.effort ? { effort: config.effort } : {}),
+          ...(config.model ? { model: config.model } : {}),
+          workspaceRoot: config.workdir,
+        })
+      : createBatchStructuredOutputProvider({
+          provider: 'claude',
+          ...(config.effort ? { effort: config.effort } : {}),
+          ...(config.model ? { model: config.model } : {}),
+          workspaceRoot: config.workdir,
+        })
   const ajv = new Ajv({
     allErrors: true,
     strict: false,

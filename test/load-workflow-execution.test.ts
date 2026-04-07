@@ -5,14 +5,22 @@ import {
   createTaskSourceSessionStub,
 } from './orchestrator-runtime-test-helpers'
 
+import type { ClaudeAgentClientOptions } from '../src/agents/claude'
 import type { CodexAgentClientOptions } from '../src/agents/codex'
 import type { ImplementerProvider, ReviewerProvider } from '../src/agents/types'
 import type { TaskGraph, WorkspaceContext } from '../src/types'
-import type { WorkflowConfig, WorkflowProvider } from '../src/workflow/config'
+import type {
+  WorkflowConfig,
+  WorkflowProvider,
+  WorkflowRoleConfig,
+} from '../src/workflow/config'
 
 interface MockCodexInstance {
   options: CodexAgentClientOptions
-  provider: ImplementerProvider & ReviewerProvider
+}
+
+interface MockClaudeInstance {
+  options: ClaudeAgentClientOptions
 }
 
 function createMockProvider(
@@ -46,18 +54,32 @@ function createMockProvider(
   }
 }
 
+const createWorkflowRoleConfig = (
+  provider: WorkflowProvider = 'codex',
+): WorkflowRoleConfig => ({ provider })
+const createCodexRole = (
+  model: string,
+  effort: CodexAgentClientOptions['effort'],
+): WorkflowRoleConfig => ({ effort, model, provider: 'codex' })
+
 function createConfig(input?: {
   implementer?: WorkflowProvider
+  implementerRole?: WorkflowRoleConfig
   mode?: WorkflowConfig['workflow']['mode']
   reviewer?: WorkflowProvider
+  reviewerRole?: WorkflowRoleConfig
 }): WorkflowConfig {
   return {
     task: { maxIterations: 5, source: 'spec-kit' },
     workflow: {
       mode: input?.mode ?? 'direct',
       roles: {
-        implementer: { provider: input?.implementer ?? 'codex' },
-        reviewer: { provider: input?.reviewer ?? 'codex' },
+        implementer:
+          input?.implementerRole ??
+          createWorkflowRoleConfig(input?.implementer ?? 'codex'),
+        reviewer:
+          input?.reviewerRole ??
+          createWorkflowRoleConfig(input?.reviewer ?? 'codex'),
       },
     },
   }
@@ -89,7 +111,7 @@ const mockState = (() => {
     },
   })
   return {
-    callSequence: [] as string[],
+    claudeInstances: [] as MockClaudeInstance[],
     codexInstances: [] as MockCodexInstance[],
     config: createConfig(),
     openTaskSourceCalls: [] as unknown[],
@@ -109,7 +131,6 @@ const mockState = (() => {
 vi.mock('../src/workflow/config', () => ({
   loadWorkflowConfig: vi.fn(async (workspaceRoot: string) => {
     mockState.workflowConfigCalls.push(workspaceRoot)
-    mockState.callSequence.push('config')
     if (mockState.workflowConfigError) {
       throw mockState.workflowConfigError
     }
@@ -118,36 +139,30 @@ vi.mock('../src/workflow/config', () => ({
 }))
 vi.mock('../src/agents/codex', () => ({
   createCodexProvider: vi.fn((options: CodexAgentClientOptions) => {
-    const provider = createMockProvider('codex')
-    mockState.codexInstances.push({ options, provider })
-    return provider
+    mockState.codexInstances.push({ options })
+    return createMockProvider('codex')
   }),
 }))
 vi.mock('../src/agents/claude', () => ({
-  createClaudeProvider: vi.fn(() => createMockProvider('claude')),
+  createClaudeProvider: vi.fn((options: ClaudeAgentClientOptions) => {
+    mockState.claudeInstances.push({ options })
+    return createMockProvider('claude')
+  }),
 }))
 vi.mock('../src/task-sources/registry', () => ({
   openTaskSource: vi.fn(async (...args: unknown[]) => {
     mockState.openTaskSourceCalls.push(args)
-    mockState.callSequence.push('task-source')
     return mockState.taskSource
   }),
 }))
 vi.mock('../src/core/task-topology', () => ({
-  buildTaskTopology: vi.fn(() => {
-    mockState.callSequence.push('graph')
-    return mockState.graph
-  }),
+  buildTaskTopology: vi.fn(() => mockState.graph),
 }))
 vi.mock('../src/runtime/fs-runtime', () => ({
-  createOrchestratorRuntime: vi.fn(() => {
-    mockState.callSequence.push('runtime')
-    return mockState.runtime
-  }),
+  createOrchestratorRuntime: vi.fn(() => mockState.runtime),
 }))
 vi.mock('../src/core/orchestrator', () => ({
   runWorkflow: vi.fn(async (input) => {
-    mockState.callSequence.push('workflow')
     mockState.runWorkflowCalls.push(input)
     return {
       state: { currentTaskHandle: null, featureId: '001-demo', tasks: {} },
@@ -174,7 +189,7 @@ function createContext(): WorkspaceContext {
 }
 
 beforeEach(() => {
-  mockState.callSequence = []
+  mockState.claudeInstances = []
   mockState.codexInstances = []
   mockState.config = createConfig()
   mockState.openTaskSourceCalls = []
@@ -183,46 +198,66 @@ beforeEach(() => {
   mockState.workflowConfigCalls = []
 })
 
-test('loadWorkflowExecution resolves claude provider in direct mode', async () => {
+test('loadWorkflowExecution forwards matching direct role options to a shared local provider', async () => {
   const context = createContext()
-  mockState.config = createConfig({ implementer: 'claude', reviewer: 'claude' })
-
-  const execution = await loadWorkflowExecution(context)
-
-  expect(execution.workflow.roles.implementer.name).toBe('claude')
-  expect(execution.workflow.roles.reviewer.name).toBe('claude')
-})
-
-test('loadWorkflowExecution resolves a direct workflow from while.yaml role providers', async () => {
-  const context = createContext()
+  mockState.config = createConfig({
+    implementerRole: createCodexRole('gpt-5-codex', 'high'),
+    reviewerRole: createCodexRole('gpt-5-codex', 'high'),
+  })
 
   const execution = await loadWorkflowExecution(context)
 
   expect(mockState.codexInstances).toHaveLength(1)
-  expect(execution.workflow).toMatchObject({
-    preset: { mode: 'direct' },
-    roles: {
-      implementer: expect.objectContaining({ name: 'codex' }),
-      reviewer: expect.objectContaining({ name: 'codex' }),
-    },
+  expect(mockState.codexInstances[0]?.options).toMatchObject({
+    effort: 'high',
+    model: 'gpt-5-codex',
+    workspaceRoot: '/tmp',
   })
   expect(execution.workflow.roles.implementer).toBe(
     execution.workflow.roles.reviewer,
   )
 })
 
-test('loadWorkflowExecution selects the pull-request preset when workflow.mode is pull-request', async () => {
+test('loadWorkflowExecution rejects conflicting direct role options on a shared provider', async () => {
   const context = createContext()
-  mockState.config = createConfig({ mode: 'pull-request' })
+  mockState.config = createConfig({
+    implementerRole: createCodexRole('gpt-5-codex', 'medium'),
+    reviewerRole: createCodexRole('gpt-5-codex', 'high'),
+  })
+
+  await expect(loadWorkflowExecution(context)).rejects.toThrow(
+    /direct workflow roles implementer and reviewer must use matching model and effort when sharing provider codex/i,
+  )
+
+  expect(mockState.claudeInstances).toHaveLength(0)
+  expect(mockState.codexInstances).toHaveLength(0)
+})
+
+test('loadWorkflowExecution ignores reviewer model and effort overrides in pull-request mode', async () => {
+  const context = createContext()
+  mockState.config = createConfig({
+    mode: 'pull-request',
+    reviewerRole: createCodexRole('reviewer-override', 'high'),
+    implementerRole: {
+      effort: 'max',
+      model: 'claude-implementer',
+      provider: 'claude',
+    },
+  })
 
   const execution = await loadWorkflowExecution(context)
 
-  expect(execution.config).toEqual(mockState.config)
-  expect(mockState.codexInstances).toHaveLength(1)
+  expect(mockState.claudeInstances).toHaveLength(1)
+  expect(mockState.claudeInstances[0]?.options).toMatchObject({
+    effort: 'max',
+    model: 'claude-implementer',
+    workspaceRoot: '/tmp',
+  })
+  expect(mockState.codexInstances).toHaveLength(0)
   expect(execution.workflow).toMatchObject({
     preset: { mode: 'pull-request' },
     roles: {
-      implementer: expect.objectContaining({ name: 'codex' }),
+      implementer: expect.objectContaining({ name: 'claude' }),
       reviewer: expect.objectContaining({ name: 'codex' }),
     },
   })
@@ -239,7 +274,8 @@ test('loadWorkflowExecution rejects unsupported remote reviewers in pull-request
     /claude remote reviewer is not implemented in pull-request mode/i,
   )
 
-  expect(mockState.codexInstances).toHaveLength(1)
+  expect(mockState.claudeInstances).toHaveLength(0)
+  expect(mockState.codexInstances).toHaveLength(0)
 })
 test('loadWorkflowExecution returns an executable plan with resolved config', async () => {
   const context = createContext()
