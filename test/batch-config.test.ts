@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -24,7 +24,7 @@ afterEach(async () => {
   )
 })
 
-test('loadBatchConfig defaults workdir to cwd when omitted', async () => {
+test('loadBatchConfig defaults glob to **/* and uses the batch.yaml directory as configDir', async () => {
   const workspaceRoot = await createWorkspace()
   const configPath = path.join(workspaceRoot, 'batch.yaml')
   await writeFile(
@@ -50,27 +50,30 @@ test('loadBatchConfig defaults workdir to cwd when omitted', async () => {
   })
 
   expect(config).toMatchObject({
+    configDir: workspaceRoot,
     configPath,
-    outputDir: workspaceRoot,
+    glob: ['**/*'],
     prompt: 'summarize file',
     provider: 'codex',
-    workdir: workspaceRoot,
   })
-  expect('model' in config).toBe(false)
-  expect('effort' in config).toBe(false)
   expect(config.schema).toMatchObject({
     required: ['summary'],
     type: 'object',
   })
 })
 
-test('loadBatchConfig parses model and effort for claude', async () => {
+test('loadBatchConfig accepts both string and array glob values', async () => {
   const workspaceRoot = await createWorkspace()
-  const configPath = path.join(workspaceRoot, 'batch.yaml')
+  const configDir = path.join(workspaceRoot, 'configs')
+  await mkdir(configDir, { recursive: true })
+  const configPath = path.join(configDir, 'batch.yaml')
   await writeFile(
     configPath,
     [
       'provider: claude',
+      'glob:',
+      '  - "../src/**/*.ts"',
+      '  - "../src/**/*.tsx"',
       'model: claude-sonnet-4-6',
       'effort: max',
       'prompt: |',
@@ -92,44 +95,22 @@ test('loadBatchConfig parses model and effort for claude', async () => {
   })
 
   expect(config).toMatchObject({
+    configDir,
     effort: 'max',
+    glob: ['../src/**/*.ts', '../src/**/*.tsx'],
     model: 'claude-sonnet-4-6',
     provider: 'claude',
   })
 })
 
-test('loadBatchConfig rejects provider-specific unsupported effort values', async () => {
-  const workspaceRoot = await createWorkspace()
-  const configPath = path.join(workspaceRoot, 'batch.yaml')
-  await writeFile(
-    configPath,
-    [
-      'provider: claude',
-      'effort: xhigh',
-      'prompt: |',
-      '  summarize file',
-      'schema:',
-      '  type: object',
-      '',
-    ].join('\n'),
-  )
-
-  await expect(
-    loadBatchConfig({
-      configPath,
-      cwd: workspaceRoot,
-    }),
-  ).rejects.toThrow(/effort/i)
-})
-
-test('loadBatchConfig rejects an empty model string', async () => {
+test('loadBatchConfig rejects workdir because batch root now comes from the config file directory', async () => {
   const workspaceRoot = await createWorkspace()
   const configPath = path.join(workspaceRoot, 'batch.yaml')
   await writeFile(
     configPath,
     [
       'provider: codex',
-      'model: "   "',
+      'workdir: ./src',
       'prompt: |',
       '  summarize file',
       'schema:',
@@ -143,15 +124,23 @@ test('loadBatchConfig rejects an empty model string', async () => {
       configPath,
       cwd: workspaceRoot,
     }),
-  ).rejects.toThrow(/model/i)
+  ).rejects.toThrow(/workdir/i)
 })
 
-test('loadBatchConfig rejects missing required fields', async () => {
+test('loadBatchConfig rejects an empty glob string', async () => {
   const workspaceRoot = await createWorkspace()
   const configPath = path.join(workspaceRoot, 'batch.yaml')
   await writeFile(
     configPath,
-    ['provider: codex', 'schema:', '  type: object', ''].join('\n'),
+    [
+      'provider: codex',
+      'glob: "   "',
+      'prompt: |',
+      '  summarize file',
+      'schema:',
+      '  type: object',
+      '',
+    ].join('\n'),
   )
 
   await expect(
@@ -159,5 +148,5 @@ test('loadBatchConfig rejects missing required fields', async () => {
       configPath,
       cwd: workspaceRoot,
     }),
-  ).rejects.toThrow(/prompt/i)
+  ).rejects.toThrow(/glob/i)
 })
