@@ -133,7 +133,8 @@ Batch config example:
 provider: claude
 model: claude-sonnet-4-6
 effort: max
-workdir: ./src
+glob:
+  - 'src/**/*.{ts,tsx}'
 prompt: |
   Read the target file and return structured output for it.
 schema:
@@ -151,13 +152,14 @@ schema:
 
 Batch behavior:
 
-- `workdir` defaults to the current working directory when omitted
+- `glob` is optional and defaults to `**/*`
+- glob patterns are resolved relative to the directory that contains `batch.yaml`
 - `provider`, `prompt`, and `schema` are required
 - `model` and `effort` are optional and are forwarded to the selected provider client
 - batch `provider` accepts `codex` or `claude`
 - batch `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
 - batch `claude` `effort` accepts `low`, `medium`, `high`, or `max`
-- each run scans the configured working directory for files
+- each run scans files matched from the `batch.yaml` directory and skips `batch.yaml`, `state.json`, and `results.json`
 - execution state is written beside the YAML file in `state.json`
 - structured results are written beside the YAML file in `results.json`
 - `--verbose` prints per-file failure reasons to `stderr`
@@ -303,7 +305,7 @@ Important files:
 
 `failed` is the current round's failure buffer. When `pending` becomes empty, those paths are persisted back into `pending` and retried in the next round. Historical state entries whose files no longer exist are dropped when a new run starts.
 
-`results.json` maps file paths relative to `workdir` to accepted structured output.
+`results.json` maps accepted structured output by file path relative to the `batch.yaml` directory. If the config lives under a subdirectory and uses patterns such as `../input/*.txt`, the keys keep that relative form.
 
 ## Publishing
 
