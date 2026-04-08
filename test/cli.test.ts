@@ -202,3 +202,70 @@ test('task-while batch smoke runs through the real CLI and writes state and resu
     'src/nested/b.ts': { summary: 'processed:src/nested/b.ts' },
   })
 })
+
+test('task-while batch --verbose smoke streams codex agent events to stderr through the real CLI', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'while-batch-cli-verbose-'))
+  await mkdir(path.join(root, 'src'), { recursive: true })
+  await writeFile(
+    path.join(root, 'src', 'verbose.ts'),
+    'export const verbose = true\n',
+  )
+  await writeFile(
+    path.join(root, 'batch.yaml'),
+    [
+      'provider: codex',
+      'glob:',
+      '  - "src/**/*.ts"',
+      'prompt: |',
+      '  summarize file',
+      'schema:',
+      '  type: object',
+      '  properties:',
+      '    summary:',
+      '      type: string',
+      '  required:',
+      '    - summary',
+      '',
+    ].join('\n'),
+  )
+
+  const existingNodeOptions = process.env.NODE_OPTIONS
+  const nodeOptions = existingNodeOptions
+    ? `${existingNodeOptions} --import=${codexSdkHook}`
+    : `--import=${codexSdkHook}`
+  const result = await runCli(
+    ['batch', '--config', './batch.yaml', '--verbose'],
+    root,
+    {
+      NODE_OPTIONS: nodeOptions,
+    },
+  )
+
+  expect(result.code).toBe(0)
+  expect(result.stderr).toContain('[codex] thread.started')
+  expect(result.stderr).toContain('[codex] turn.started')
+  expect(result.stderr).toContain('[codex] item.completed agent_message')
+  expect(result.stderr).toContain(
+    '[codex] message {"summary":"processed:src/verbose.ts"}',
+  )
+
+  const state = JSON.parse(
+    await readFile(path.join(root, 'state.json'), 'utf8'),
+  ) as {
+    failed: string[]
+    inProgress: string[]
+    pending: string[]
+  }
+  const results = JSON.parse(
+    await readFile(path.join(root, 'results.json'), 'utf8'),
+  ) as Record<string, { summary: string }>
+
+  expect(state).toEqual({
+    failed: [],
+    inProgress: [],
+    pending: [],
+  })
+  expect(results).toEqual({
+    'src/verbose.ts': { summary: 'processed:src/verbose.ts' },
+  })
+})
