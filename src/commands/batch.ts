@@ -6,7 +6,11 @@ import * as fsExtra from 'fs-extra'
 import { z } from 'zod'
 
 import { loadBatchConfig, type BatchConfig } from '../batch/config'
-import { createBatchStructuredOutputProvider } from '../batch/provider'
+import { discoverBatchFiles } from '../batch/discovery'
+import {
+  createBatchStructuredOutputProvider,
+  type BatchStructuredOutputProvider,
+} from '../batch/provider'
 import { parseWithSchema, uniqueStringArray } from '../schema/shared'
 import { writeJsonAtomic } from '../utils/fs'
 
@@ -54,10 +58,6 @@ function createEmptyState(): BatchState {
   }
 }
 
-function normalizeRelativePath(filePath: string) {
-  return filePath.split(path.sep).join('/')
-}
-
 function unique(items: string[]) {
   return [...new Set(items)]
 }
@@ -86,41 +86,6 @@ async function loadBatchResults(filePath: string) {
     return {}
   }
   return parseWithSchema(batchResultsSchema, value)
-}
-
-async function discoverFiles(
-  workdir: string,
-  excludedFiles: Set<string>,
-  currentDir = workdir,
-): Promise<string[]> {
-  const entries = await fsExtra.readdir(currentDir, {
-    withFileTypes: true,
-  })
-  const filePaths: string[] = []
-
-  for (const entry of entries.sort((left, right) =>
-    left.name.localeCompare(right.name),
-  )) {
-    if (entry.name === '.git' || entry.name === 'node_modules') {
-      continue
-    }
-    const absolutePath = path.join(currentDir, entry.name)
-    if (entry.isDirectory()) {
-      filePaths.push(
-        ...(await discoverFiles(workdir, excludedFiles, absolutePath)),
-      )
-      continue
-    }
-    if (!entry.isFile()) {
-      continue
-    }
-    if (excludedFiles.has(absolutePath)) {
-      continue
-    }
-    filePaths.push(normalizeRelativePath(path.relative(workdir, absolutePath)))
-  }
-
-  return filePaths
 }
 
 function mergeBatchState(input: {
@@ -193,6 +158,24 @@ async function recycleFailedFiles(
   return nextState
 }
 
+function createProvider(config: BatchConfig): BatchStructuredOutputProvider {
+  if (config.provider === 'codex') {
+    return createBatchStructuredOutputProvider({
+      provider: 'codex',
+      ...(config.effort ? { effort: config.effort } : {}),
+      ...(config.model ? { model: config.model } : {}),
+      workspaceRoot: config.configDir,
+    })
+  }
+
+  return createBatchStructuredOutputProvider({
+    provider: 'claude',
+    ...(config.effort ? { effort: config.effort } : {}),
+    ...(config.model ? { model: config.model } : {}),
+    workspaceRoot: config.configDir,
+  })
+}
+
 export async function runBatchCommand(
   input: RunBatchCommandInput,
 ): Promise<RunBatchCommandResult> {
@@ -202,15 +185,14 @@ export async function runBatchCommand(
     cwd,
   })
 
-  const workdirExists = await fsExtra.pathExists(config.workdir)
-  if (!workdirExists) {
-    throw new Error(`Batch workdir does not exist: ${config.workdir}`)
-  }
-
-  const statePath = path.join(config.outputDir, 'state.json')
-  const resultsPath = path.join(config.outputDir, 'results.json')
+  const statePath = path.join(config.configDir, 'state.json')
+  const resultsPath = path.join(config.configDir, 'results.json')
   const excludedFiles = new Set([config.configPath, statePath, resultsPath])
-  const discoveredFiles = await discoverFiles(config.workdir, excludedFiles)
+  const discoveredFiles = await discoverBatchFiles({
+    baseDir: config.configDir,
+    excludedFiles,
+    patterns: config.glob,
+  })
   const results = await loadBatchResults(resultsPath)
   let state: BatchState = mergeBatchState({
     discoveredFiles,
@@ -219,27 +201,13 @@ export async function runBatchCommand(
   })
   await writeJsonAtomic(statePath, state)
   await writeJsonAtomic(resultsPath, results)
-
-  const provider =
-    config.provider === 'codex'
-      ? createBatchStructuredOutputProvider({
-          provider: 'codex',
-          ...(config.effort ? { effort: config.effort } : {}),
-          ...(config.model ? { model: config.model } : {}),
-          workspaceRoot: config.workdir,
-        })
-      : createBatchStructuredOutputProvider({
-          provider: 'claude',
-          ...(config.effort ? { effort: config.effort } : {}),
-          ...(config.model ? { model: config.model } : {}),
-          workspaceRoot: config.workdir,
-        })
   const ajv = new Ajv({
     allErrors: true,
     strict: false,
   })
   const validateOutput = ajv.compile(config.schema)
   const processedFiles: string[] = []
+  let provider: BatchStructuredOutputProvider | null = null
 
   while (state.pending.length !== 0 || state.failed.length !== 0) {
     if (state.pending.length === 0) {
@@ -255,15 +223,14 @@ export async function runBatchCommand(
     await writeJsonAtomic(statePath, state)
 
     try {
-      const absoluteFilePath = path.join(config.workdir, filePath)
+      provider ??= createProvider(config)
+      const absoluteFilePath = path.join(config.configDir, filePath)
       const content = await readFile(absoluteFilePath, 'utf8')
       const output = await provider.runFile({
-        absoluteFilePath,
         content,
         filePath,
         outputSchema: config.schema,
         prompt: config.prompt,
-        workdir: config.workdir,
       })
       if (!validateOutput(output)) {
         throw new Error(ajv.errorsText(validateOutput.errors))

@@ -20,11 +20,17 @@ const jsonSchemaSchema = z.custom<Record<string, unknown>>(
   },
 )
 
+const globEntrySchema = z.string().trim().min(1)
+
+const globSchema = z
+  .union([globEntrySchema, z.array(globEntrySchema).min(1)])
+  .optional()
+
 const commonBatchConfigSchema = z
   .object({
+    glob: globSchema,
     prompt: z.string().trim().min(1),
     schema: jsonSchemaSchema,
-    workdir: z.string().trim().min(1).optional(),
   })
   .strict()
 
@@ -48,11 +54,11 @@ const batchConfigSchema = z.discriminatedUnion('provider', [
 export type BatchProviderName = WorkflowRoleProviderOptions['provider']
 
 interface BatchConfigBase {
+  configDir: string
   configPath: string
-  outputDir: string
+  glob: string[]
   prompt: string
   schema: Record<string, unknown>
-  workdir: string
 }
 
 export type BatchConfig = BatchConfigBase & WorkflowRoleProviderOptions
@@ -62,6 +68,13 @@ export interface LoadBatchConfigInput {
   cwd: string
 }
 
+function normalizeGlobConfig(glob: string | string[] | undefined) {
+  if (!glob) {
+    return ['**/*']
+  }
+  return typeof glob === 'string' ? [glob] : glob
+}
+
 export async function loadBatchConfig(
   input: LoadBatchConfigInput,
 ): Promise<BatchConfig> {
@@ -69,16 +82,13 @@ export async function loadBatchConfig(
   const configSource = await readFile(configPath, 'utf8')
   const rawConfig = parse(configSource) ?? {}
   const parsedConfig = batchConfigSchema.parse(rawConfig)
-  const outputDir = path.dirname(configPath)
-  const workdir = parsedConfig.workdir
-    ? path.resolve(outputDir, parsedConfig.workdir)
-    : path.resolve(input.cwd)
+  const configDir = path.dirname(configPath)
   const baseConfig = {
+    configDir,
     configPath,
-    outputDir,
+    glob: normalizeGlobConfig(parsedConfig.glob),
     prompt: parsedConfig.prompt,
     schema: parsedConfig.schema,
-    workdir,
   }
 
   if (parsedConfig.provider === 'claude') {

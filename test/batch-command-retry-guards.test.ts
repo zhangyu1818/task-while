@@ -41,7 +41,8 @@ async function writeConfig(root: string) {
     configPath,
     [
       'provider: codex',
-      'workdir: ./input',
+      'glob:',
+      '  - "input/*.txt"',
       'prompt: |',
       '  summarize file',
       'schema:',
@@ -102,11 +103,11 @@ test('runBatchCommand prints file failure reasons when verbose is enabled', asyn
   })
 
   expect(providerState.inputs.map((input) => input.filePath)).toEqual([
-    'a.txt',
-    'a.txt',
+    'input/a.txt',
+    'input/a.txt',
   ])
   expect(stderr).toHaveBeenCalledOnce()
-  expect(stderr.mock.calls[0]?.[0]).toMatch(/\[batch\] failed a\.txt:/)
+  expect(stderr.mock.calls[0]?.[0]).toMatch(/\[batch\] failed input\/a\.txt:/)
 })
 
 test('runBatchCommand drops missing failed paths before starting a new run', async () => {
@@ -119,7 +120,7 @@ test('runBatchCommand drops missing failed paths before starting a new run', asy
     path.join(root, 'state.json'),
     JSON.stringify(
       {
-        failed: ['missing.txt'],
+        failed: ['input/missing.txt'],
         inProgress: [],
         pending: [],
       },
@@ -132,7 +133,7 @@ test('runBatchCommand drops missing failed paths before starting a new run', asy
     name: 'codex',
     async runFile(input) {
       providerState.inputs.push(input)
-      if (input.filePath === 'a.txt') {
+      if (input.filePath === 'input/a.txt') {
         await writeFile(path.join(inputDir, 'missing.txt'), 'late\n')
       }
       return {
@@ -146,7 +147,9 @@ test('runBatchCommand drops missing failed paths before starting a new run', asy
     cwd: root,
   })
 
-  expect(providerState.inputs.map((input) => input.filePath)).toEqual(['a.txt'])
+  expect(providerState.inputs.map((input) => input.filePath)).toEqual([
+    'input/a.txt',
+  ])
 
   const state = JSON.parse(
     await readFile(path.join(root, 'state.json'), 'utf8'),
@@ -165,6 +168,6 @@ test('runBatchCommand drops missing failed paths before starting a new run', asy
     pending: [],
   })
   expect(results).toEqual({
-    'a.txt': { summary: 'a.txt' },
+    'input/a.txt': { summary: 'input/a.txt' },
   })
 })

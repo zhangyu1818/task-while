@@ -133,7 +133,8 @@ Batch config example:
 provider: claude
 model: claude-sonnet-4-6
 effort: max
-workdir: ./src
+glob:
+  - 'src/**/*.{ts,tsx}'
 prompt: |
   Read the target file and return structured output for it.
 schema:
@@ -151,20 +152,23 @@ schema:
 
 Batch behavior:
 
-- `workdir` defaults to the current working directory when omitted
+- `glob` is optional and defaults to `**/*`
+- `glob` is resolved relative to the directory that contains `batch.yaml`
 - `provider`, `prompt`, and `schema` are required
 - `model` and `effort` are optional and are forwarded to the selected provider client
 - batch `provider` accepts `codex` or `claude`
 - batch `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
 - batch `claude` `effort` accepts `low`, `medium`, `high`, or `max`
-- each run scans the configured working directory for files
+- each run scans files under the `batch.yaml` directory and filters them by `glob`
 - execution state is written beside the YAML file in `state.json`
 - structured results are written beside the YAML file in `results.json`
+- result keys are relative to the directory that contains `batch.yaml`
 - `--verbose` prints per-file failure reasons to `stderr`
 - rerunning the command resumes unfinished work and skips files that already have accepted results
 - when the current `pending` queue is exhausted and `failed` is non-empty, the command persists a recycle transition that moves `failed` back into `pending` for the next round
 - the command exits only when both `pending` and `failed` are empty
 - there is no retry limit for file-level failures; failed files continue to be retried round by round
+- when `glob` matches no files, the command exits successfully without initializing a provider
 
 ## Task Lifecycle
 
@@ -303,7 +307,7 @@ Important files:
 
 `failed` is the current round's failure buffer. When `pending` becomes empty, those paths are persisted back into `pending` and retried in the next round. Historical state entries whose files no longer exist are dropped when a new run starts.
 
-`results.json` maps file paths relative to `workdir` to accepted structured output.
+`results.json` maps accepted structured output by file path relative to the `batch.yaml` directory. If the config lives under a subdirectory and uses patterns such as `../input/*.txt`, the keys keep that relative form.
 
 ## Publishing
 
