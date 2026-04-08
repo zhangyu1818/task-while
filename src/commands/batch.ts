@@ -227,12 +227,10 @@ export async function runBatchCommand(
       const absoluteFilePath = path.join(config.configDir, filePath)
       const content = await readFile(absoluteFilePath, 'utf8')
       const output = await provider.runFile({
-        absoluteFilePath,
         content,
         filePath,
         outputSchema: config.schema,
         prompt: config.prompt,
-        workdir: config.configDir,
       })
       if (!validateOutput(output)) {
         throw new Error(ajv.errorsText(validateOutput.errors))

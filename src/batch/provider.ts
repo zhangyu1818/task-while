@@ -1,17 +1,13 @@
-import path from 'node:path'
-
 import { ClaudeAgentClient } from '../agents/claude'
 import { CodexAgentClient } from '../agents/codex'
 
 import type { WorkflowRoleProviderOptions } from '../agents/provider-options'
 
 export interface BatchFileInput {
-  absoluteFilePath: string
   content: string
   filePath: string
   outputSchema: Record<string, unknown>
   prompt: string
-  workdir: string
 }
 
 export interface BatchStructuredOutputProvider {
@@ -25,15 +21,10 @@ export type CreateBatchStructuredOutputProviderInput =
   }
 
 function buildBatchPrompt(input: BatchFileInput) {
-  const relativeToWorkspace = path
-    .relative(input.workdir, input.absoluteFilePath)
-    .split(path.sep)
-    .join('/')
   return [
     'Process exactly one file and return structured output only.',
     input.prompt,
     `File path: ${input.filePath}`,
-    `Workdir-relative path: ${relativeToWorkspace}`,
     'File content:',
     input.content,
   ].join('\n\n')

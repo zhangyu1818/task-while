@@ -153,20 +153,22 @@ schema:
 Batch behavior:
 
 - `glob` is optional and defaults to `**/*`
-- glob patterns are resolved relative to the directory that contains `batch.yaml`
+- `glob` is resolved relative to the directory that contains `batch.yaml`
 - `provider`, `prompt`, and `schema` are required
 - `model` and `effort` are optional and are forwarded to the selected provider client
 - batch `provider` accepts `codex` or `claude`
 - batch `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
 - batch `claude` `effort` accepts `low`, `medium`, `high`, or `max`
-- each run scans files matched from the `batch.yaml` directory and skips `batch.yaml`, `state.json`, and `results.json`
+- each run scans files under the `batch.yaml` directory and filters them by `glob`
 - execution state is written beside the YAML file in `state.json`
 - structured results are written beside the YAML file in `results.json`
+- result keys are relative to the directory that contains `batch.yaml`
 - `--verbose` prints per-file failure reasons to `stderr`
 - rerunning the command resumes unfinished work and skips files that already have accepted results
 - when the current `pending` queue is exhausted and `failed` is non-empty, the command persists a recycle transition that moves `failed` back into `pending` for the next round
 - the command exits only when both `pending` and `failed` are empty
 - there is no retry limit for file-level failures; failed files continue to be retried round by round
+- when `glob` matches no files, the command exits successfully without initializing a provider
 
 ## Task Lifecycle
 

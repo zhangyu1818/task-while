@@ -10,6 +10,14 @@ import type { CodexAgentClientOptions } from '../src/agents/codex'
 const clientState = vi.hoisted(() => ({
   claudeOptions: [] as ClaudeAgentClientOptions[],
   codexOptions: [] as CodexAgentClientOptions[],
+  claudeInvocations: [] as {
+    outputSchema: Record<string, unknown>
+    prompt: string
+  }[],
+  codexInvocations: [] as {
+    outputSchema: Record<string, unknown>
+    prompt: string
+  }[],
 }))
 
 vi.mock('../src/agents/codex', () => ({
@@ -17,7 +25,11 @@ vi.mock('../src/agents/codex', () => ({
     public constructor(options: CodexAgentClientOptions) {
       clientState.codexOptions.push(options)
     }
-    public async invokeStructured() {
+    public async invokeStructured(input: {
+      outputSchema: Record<string, unknown>
+      prompt: string
+    }) {
+      clientState.codexInvocations.push(input)
       return { ok: true }
     }
   },
@@ -28,7 +40,11 @@ vi.mock('../src/agents/claude', () => ({
     public constructor(options: ClaudeAgentClientOptions) {
       clientState.claudeOptions.push(options)
     }
-    public async invokeStructured() {
+    public async invokeStructured(input: {
+      outputSchema: Record<string, unknown>
+      prompt: string
+    }) {
+      clientState.claudeInvocations.push(input)
       return { ok: true }
     }
   },
@@ -56,7 +72,9 @@ async function createBatchCommandFixture(configLines: string[]) {
 }
 
 beforeEach(() => {
+  clientState.claudeInvocations = []
   clientState.claudeOptions = []
+  clientState.codexInvocations = []
   clientState.codexOptions = []
   vi.restoreAllMocks()
 })
@@ -114,6 +132,31 @@ test('createBatchStructuredOutputProvider keeps default agent options when model
       workspaceRoot: '/tmp/workspace',
     },
   ])
+})
+
+test('runFile builds the structured prompt from the config-root-relative file path and content', async () => {
+  const provider = createBatchStructuredOutputProvider({
+    provider: 'codex',
+    workspaceRoot: '/tmp/workspace',
+  })
+
+  await provider.runFile({
+    content: 'alpha\n',
+    filePath: 'src/a.ts',
+    prompt: 'summarize file',
+    outputSchema: {
+      type: 'object',
+    },
+  })
+
+  const invocation = clientState.codexInvocations.at(-1)
+
+  expect(invocation?.prompt).toContain(
+    'Process exactly one file and return structured output only.',
+  )
+  expect(invocation?.prompt).toContain('File path: src/a.ts')
+  expect(invocation?.prompt).toContain('File content:\n\nalpha\n')
+  expect(invocation?.prompt).not.toContain('Workdir-relative path:')
 })
 
 test('runBatchCommand forwards configured model and effort to the batch provider factory', async () => {
