@@ -58,10 +58,74 @@ export interface CodexTurnFailedError {
   message: string
 }
 
-export interface CodexItemPayload {
-  text?: string
-  type: string
+export interface CodexAgentMessageItem {
+  id: string
+  text: string
+  type: 'agent_message'
 }
+
+export interface CodexReasoningItem {
+  id: string
+  text: string
+  type: 'reasoning'
+}
+
+export interface CodexCommandExecutionItem {
+  aggregated_output: string
+  command: string
+  exit_code?: number
+  id: string
+  status: 'completed' | 'failed' | 'in_progress'
+  type: 'command_execution'
+}
+
+export interface CodexFileChangeItem {
+  changes: { kind: 'add' | 'delete' | 'update'; path: string }[]
+  id: string
+  status: 'completed' | 'failed'
+  type: 'file_change'
+}
+
+export interface CodexMcpToolCallItem {
+  arguments: unknown
+  error?: { message: string }
+  id: string
+  result?: {
+    structured_content: unknown
+  }
+  server: string
+  status: 'completed' | 'failed' | 'in_progress'
+  tool: string
+  type: 'mcp_tool_call'
+}
+
+export interface CodexWebSearchItem {
+  id: string
+  query: string
+  type: 'web_search'
+}
+
+export interface CodexTodoListItem {
+  id: string
+  items: { completed: boolean; text: string }[]
+  type: 'todo_list'
+}
+
+export interface CodexErrorItem {
+  id: string
+  message: string
+  type: 'error'
+}
+
+export type CodexItemPayload =
+  | CodexAgentMessageItem
+  | CodexCommandExecutionItem
+  | CodexErrorItem
+  | CodexFileChangeItem
+  | CodexMcpToolCallItem
+  | CodexReasoningItem
+  | CodexTodoListItem
+  | CodexWebSearchItem
 
 export type CodexThreadEvent =
   | CodexErrorEvent
@@ -147,7 +211,7 @@ export class CodexAgentClient implements ImplementerProvider, ReviewerProvider {
         event.type === 'item.completed' &&
         event.item.type === 'agent_message'
       ) {
-        finalResponse = event.item.text?.trim() ?? ''
+        finalResponse = event.item.text.trim()
       }
     }
 

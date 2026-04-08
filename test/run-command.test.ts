@@ -258,16 +258,13 @@ test('runCommand enables Codex progress callback on workflow providers when verb
   mockState.codexInstances[0]?.options.onEvent?.({
     type: 'item.completed',
     item: {
+      id: 'message-1',
       text: '{"verdict":"pass","acceptanceChecks":[{"status":"fail"}]}',
       type: 'agent_message',
     },
   })
   expect(stderr).toHaveBeenNthCalledWith(
     1,
-    '[codex] item.completed agent_message\n',
-  )
-  expect(stderr).toHaveBeenNthCalledWith(
-    2,
     '[codex] message {"verdict":"pass","acceptanceChecks":[{"status":"fail"}]}\n',
   )
 })
@@ -286,8 +283,7 @@ test('runCommand prints codex error details when verbose is true', async () => {
     type: 'error',
   })
 
-  expect(stderr).toHaveBeenNthCalledWith(1, '[codex] error\n')
-  expect(stderr).toHaveBeenNthCalledWith(2, '[codex] error bad payload\n')
+  expect(stderr).toHaveBeenNthCalledWith(1, '[codex] error bad payload\n')
 })
 
 test('runCommand loads workflow config before creating runtime', async () => {

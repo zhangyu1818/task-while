@@ -242,12 +242,12 @@ test('task-while batch --verbose smoke streams codex agent events to stderr thro
   )
 
   expect(result.code).toBe(0)
-  expect(result.stderr).toContain('[codex] thread.started')
-  expect(result.stderr).toContain('[codex] turn.started')
-  expect(result.stderr).toContain('[codex] item.completed agent_message')
   expect(result.stderr).toContain(
     '[codex] message {"summary":"processed:src/verbose.ts"}',
   )
+  expect(result.stderr).toContain('[codex] result tokens in=1 out=1 cached=0')
+  expect(result.stderr).not.toContain('[codex] thread.started')
+  expect(result.stderr).not.toContain('[codex] item.completed agent_message')
 
   const state = JSON.parse(
     await readFile(path.join(root, 'state.json'), 'utf8'),

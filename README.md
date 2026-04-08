@@ -116,7 +116,7 @@ Useful flags:
 - `--feature <featureId>`: select the feature explicitly
 - For `task.source: openspec`, `--feature <featureId>` selects the OpenSpec change id
 - `--until-task <taskSelector>`: stop after the target task reaches `done`
-- `--verbose`: stream agent events to `stderr`
+- `--verbose`: stream direct provider details to `stderr`, including Claude init/task/tool/result summaries and Codex thinking, commands, MCP tools, file updates, todo changes, messages, and final usage
 
 ### `task-while batch`
 
@@ -163,7 +163,7 @@ Batch behavior:
 - execution state is written beside the YAML file in `state.json`
 - structured results are written beside the YAML file in `results.json`
 - result keys are relative to the directory that contains `batch.yaml`
-- `--verbose` streams provider agent events to `stderr` during batch execution
+- `--verbose` streams direct provider details to `stderr` during batch execution, including Claude init/task/tool/result summaries and Codex thinking, commands, MCP tools, file updates, todo changes, messages, and final usage
 - rerunning the command resumes unfinished work and skips files that already have accepted results
 - when the current `pending` queue is exhausted and `failed` is non-empty, the command persists a recycle transition that moves `failed` back into `pending` for the next round
 - the command exits only when both `pending` and `failed` are empty

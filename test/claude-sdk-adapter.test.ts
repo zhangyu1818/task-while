@@ -28,16 +28,30 @@ beforeEach(() => {
   mockState.messages = []
 })
 
-test('ClaudeAgentClient.implement passes prompt and outputFormat to query and returns structured output', async () => {
-  const implementResult = {
+function createImplementResult() {
+  return {
     assumptions: [],
     needsHumanAttention: false,
     notes: [],
-    status: 'implemented',
+    status: 'implemented' as const,
     summary: 'done',
     taskHandle: 'T001',
     unresolvedItems: [],
   }
+}
+
+function createSuccessResultMessage(overrides: Record<string, unknown> = {}) {
+  return {
+    result: 'ok',
+    structured_output: createImplementResult(),
+    subtype: 'success',
+    type: 'result',
+    ...overrides,
+  }
+}
+
+test('ClaudeAgentClient.implement passes prompt and outputFormat to query and returns structured output', async () => {
+  const implementResult = createImplementResult()
 
   mockState.messages = [
     {
@@ -123,22 +137,7 @@ test('ClaudeAgentClient.review passes prompt and outputFormat to query and retur
 })
 
 test('ClaudeAgentClient passes configured model and effort defaults to query options', async () => {
-  mockState.messages = [
-    {
-      result: 'ok',
-      subtype: 'success',
-      type: 'result',
-      structured_output: {
-        assumptions: [],
-        needsHumanAttention: false,
-        notes: [],
-        status: 'implemented',
-        summary: 'done',
-        taskHandle: 'T001',
-        unresolvedItems: [],
-      },
-    },
-  ]
+  mockState.messages = [createSuccessResultMessage()]
 
   const client = new ClaudeAgentClient({
     effort: 'max',
@@ -228,71 +227,8 @@ test('ClaudeAgentClient throws when query yields no messages', async () => {
   ).rejects.toThrow(/no structured output/i)
 })
 
-test('ClaudeAgentClient forwards stream events to onEvent handler', async () => {
-  const seenEvents: string[] = []
-
-  mockState.messages = [
-    {
-      type: 'assistant',
-    },
-    {
-      type: 'stream_event',
-      event: {
-        delta: { text: 'hello', type: 'text_delta' },
-        type: 'content_block_delta',
-      },
-    },
-    {
-      result: 'ok',
-      subtype: 'success',
-      type: 'result',
-      structured_output: {
-        assumptions: [],
-        needsHumanAttention: false,
-        notes: [],
-        status: 'implemented',
-        summary: 'done',
-        taskHandle: 'T001',
-        unresolvedItems: [],
-      },
-    },
-  ]
-
-  const client = new ClaudeAgentClient({
-    workspaceRoot: '/tmp/project',
-    onEvent(event: { type: string }) {
-      seenEvents.push(event.type)
-    },
-  })
-
-  await client.implement({
-    attempt: 1,
-    generation: 1,
-    lastFindings: [],
-    prompt: createTaskPrompt(),
-    taskHandle: 'T001',
-  })
-
-  expect(seenEvents).toEqual(['assistant', 'text', 'result'])
-})
-
 test('ClaudeAgentClient sets includePartialMessages only when onEvent is provided', async () => {
-  mockState.messages = [
-    {
-      result: 'ok',
-      subtype: 'success',
-      type: 'result',
-      structured_output: {
-        assumptions: [],
-        needsHumanAttention: false,
-        notes: [],
-        status: 'implemented',
-        summary: 'done',
-        taskHandle: 'T001',
-        unresolvedItems: [],
-      },
-    },
-  ]
+  mockState.messages = [createSuccessResultMessage()]
 
   const client = new ClaudeAgentClient({
     workspaceRoot: '/tmp/project',
@@ -308,12 +244,14 @@ test('ClaudeAgentClient sets includePartialMessages only when onEvent is provide
 
   const args = mockState.queryArgs as {
     options: {
+      agentProgressSummaries?: boolean
       effort?: string
       includePartialMessages: boolean
       model?: string
     }
   }
   expect(args.options.includePartialMessages).toBe(false)
+  expect('agentProgressSummaries' in args.options).toBe(false)
   expect('model' in args.options).toBe(false)
   expect('effort' in args.options).toBe(false)
 })
