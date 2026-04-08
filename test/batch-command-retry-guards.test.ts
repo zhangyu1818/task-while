@@ -106,8 +106,11 @@ test('runBatchCommand prints file failure reasons when verbose is enabled', asyn
     'input/a.txt',
     'input/a.txt',
   ])
-  expect(stderr).toHaveBeenCalledOnce()
-  expect(stderr.mock.calls[0]?.[0]).toMatch(/\[batch\] failed input\/a\.txt:/)
+  expect(
+    stderr.mock.calls.some((call) =>
+      /\[batch\] failed input\/a\.txt:/.test(String(call[0])),
+    ),
+  ).toBe(true)
 })
 
 test('runBatchCommand drops missing failed paths before starting a new run', async () => {

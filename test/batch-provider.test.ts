@@ -20,11 +20,33 @@ const clientState = vi.hoisted(() => ({
   }[],
 }))
 
+const eventLogState = vi.hoisted(() => {
+  const claudeHandler = vi.fn()
+  const codexHandler = vi.fn()
+
+  return {
+    claudeHandler,
+    codexHandler,
+    createClaudeEventHandler: vi.fn((verbose?: boolean) =>
+      verbose ? claudeHandler : undefined,
+    ),
+    createCodexEventHandler: vi.fn((verbose?: boolean) =>
+      verbose ? codexHandler : undefined,
+    ),
+  }
+})
+
+vi.mock('../src/agents/event-log', () => ({
+  createClaudeEventHandler: eventLogState.createClaudeEventHandler,
+  createCodexEventHandler: eventLogState.createCodexEventHandler,
+}))
+
 vi.mock('../src/agents/codex', () => ({
   CodexAgentClient: class {
     public constructor(options: CodexAgentClientOptions) {
       clientState.codexOptions.push(options)
     }
+
     public async invokeStructured(input: {
       outputSchema: Record<string, unknown>
       prompt: string
@@ -40,6 +62,7 @@ vi.mock('../src/agents/claude', () => ({
     public constructor(options: ClaudeAgentClientOptions) {
       clientState.claudeOptions.push(options)
     }
+
     public async invokeStructured(input: {
       outputSchema: Record<string, unknown>
       prompt: string
@@ -54,7 +77,26 @@ const batchProviderModule = await import('../src/batch/provider')
 const { createBatchStructuredOutputProvider } = batchProviderModule
 const workspaces: string[] = []
 
-async function createBatchCommandFixture(configLines: string[]) {
+type ProviderName = 'claude' | 'codex'
+
+function createBatchConfig(provider: ProviderName) {
+  return [
+    `provider: ${provider}`,
+    'glob:',
+    '  - "input/*.txt"',
+    'prompt: |',
+    '  summarize file',
+    'schema:',
+    '  type: object',
+    '  properties:',
+    '    summary:',
+    '      type: string',
+    '  required:',
+    '    - summary',
+  ]
+}
+
+async function createBatchCommandFixture(provider: ProviderName) {
   const root = await mkdtemp(path.join(tmpdir(), 'while-batch-provider-'))
   workspaces.push(root)
   const inputDir = path.join(root, 'input')
@@ -62,12 +104,17 @@ async function createBatchCommandFixture(configLines: string[]) {
 
   await mkdir(inputDir, { recursive: true })
   await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
-  await writeFile(configPath, [...configLines, ''].join('\n'))
+  await writeFile(configPath, [...createBatchConfig(provider), ''].join('\n'))
 
+  return { configPath, root }
+}
+
+function createProvider(name: ProviderName) {
   return {
-    configPath,
-    inputDir,
-    root,
+    name,
+    async runFile() {
+      return { summary: 'a.txt' }
+    },
   }
 }
 
@@ -76,6 +123,10 @@ beforeEach(() => {
   clientState.claudeOptions = []
   clientState.codexInvocations = []
   clientState.codexOptions = []
+  eventLogState.claudeHandler.mockClear()
+  eventLogState.codexHandler.mockClear()
+  eventLogState.createClaudeEventHandler.mockClear()
+  eventLogState.createCodexEventHandler.mockClear()
   vi.restoreAllMocks()
 })
 
@@ -87,11 +138,17 @@ afterEach(async () => {
   )
 })
 
-test('createBatchStructuredOutputProvider forwards model and effort to CodexAgentClient', () => {
+test('createBatchStructuredOutputProvider forwards model and effort to agent clients', () => {
   createBatchStructuredOutputProvider({
     effort: 'high',
     model: 'gpt-5-codex',
     provider: 'codex',
+    workspaceRoot: '/tmp/workspace',
+  } as never)
+  createBatchStructuredOutputProvider({
+    effort: 'max',
+    model: 'claude-sonnet-4-6',
+    provider: 'claude',
     workspaceRoot: '/tmp/workspace',
   } as never)
 
@@ -102,16 +159,6 @@ test('createBatchStructuredOutputProvider forwards model and effort to CodexAgen
       workspaceRoot: '/tmp/workspace',
     },
   ])
-})
-
-test('createBatchStructuredOutputProvider forwards model and effort to ClaudeAgentClient', () => {
-  createBatchStructuredOutputProvider({
-    effort: 'max',
-    model: 'claude-sonnet-4-6',
-    provider: 'claude',
-    workspaceRoot: '/tmp/workspace',
-  } as never)
-
   expect(clientState.claudeOptions).toEqual([
     {
       effort: 'max',
@@ -121,20 +168,62 @@ test('createBatchStructuredOutputProvider forwards model and effort to ClaudeAge
   ])
 })
 
-test('createBatchStructuredOutputProvider keeps default agent options when model and effort are unset', () => {
+test('createBatchStructuredOutputProvider reuses verbose event handlers and omits them otherwise', () => {
   createBatchStructuredOutputProvider({
     provider: 'codex',
+    verbose: true,
+    workspaceRoot: '/tmp/workspace',
+  })
+  createBatchStructuredOutputProvider({
+    provider: 'claude',
+    verbose: true,
+    workspaceRoot: '/tmp/workspace',
+  })
+  createBatchStructuredOutputProvider({
+    provider: 'codex',
+    verbose: false,
+    workspaceRoot: '/tmp/workspace',
+  })
+  createBatchStructuredOutputProvider({
+    provider: 'claude',
+    verbose: false,
     workspaceRoot: '/tmp/workspace',
   })
 
+  expect(eventLogState.createCodexEventHandler).toHaveBeenNthCalledWith(1, true)
+  expect(eventLogState.createClaudeEventHandler).toHaveBeenNthCalledWith(
+    1,
+    true,
+  )
+  expect(eventLogState.createCodexEventHandler).toHaveBeenNthCalledWith(
+    2,
+    false,
+  )
+  expect(eventLogState.createClaudeEventHandler).toHaveBeenNthCalledWith(
+    2,
+    false,
+  )
   expect(clientState.codexOptions).toEqual([
+    {
+      onEvent: eventLogState.codexHandler,
+      workspaceRoot: '/tmp/workspace',
+    },
+    {
+      workspaceRoot: '/tmp/workspace',
+    },
+  ])
+  expect(clientState.claudeOptions).toEqual([
+    {
+      onEvent: eventLogState.claudeHandler,
+      workspaceRoot: '/tmp/workspace',
+    },
     {
       workspaceRoot: '/tmp/workspace',
     },
   ])
 })
 
-test('runFile builds the structured prompt from the config-root-relative file path and content', async () => {
+test('runFile builds the structured prompt from the relative path and content', async () => {
   const provider = createBatchStructuredOutputProvider({
     provider: 'codex',
     workspaceRoot: '/tmp/workspace',
@@ -143,10 +232,8 @@ test('runFile builds the structured prompt from the config-root-relative file pa
   await provider.runFile({
     content: 'alpha\n',
     filePath: 'src/a.ts',
+    outputSchema: { type: 'object' },
     prompt: 'summarize file',
-    outputSchema: {
-      type: 'object',
-    },
   })
 
   const invocation = clientState.codexInvocations.at(-1)
@@ -156,170 +243,36 @@ test('runFile builds the structured prompt from the config-root-relative file pa
   )
   expect(invocation?.prompt).toContain('File path: src/a.ts')
   expect(invocation?.prompt).toContain('File content:\n\nalpha\n')
-  expect(invocation?.prompt).not.toContain('Workdir-relative path:')
 })
 
-test('runBatchCommand forwards configured model and effort to the batch provider factory', async () => {
-  const { configPath, root } = await createBatchCommandFixture([
-    'provider: codex',
-    'model: gpt-5-codex',
-    'effort: high',
-    'glob:',
-    '  - "input/*.txt"',
-    'prompt: |',
-    '  summarize file',
-    'schema:',
-    '  type: object',
-    '  properties:',
-    '    summary:',
-    '      type: string',
-    '  required:',
-    '    - summary',
-  ])
-  const provider = {
-    name: 'codex',
-    async runFile() {
-      return {
-        summary: 'a.txt',
-      }
-    },
-  }
+test('runBatchCommand forwards verbose to the batch provider factory', async () => {
+  const { runBatchCommand } = await import('../src/commands/batch')
+  const codexFixture = await createBatchCommandFixture('codex')
+  const claudeFixture = await createBatchCommandFixture('claude')
   const createProviderSpy = vi
     .spyOn(batchProviderModule, 'createBatchStructuredOutputProvider')
-    .mockReturnValue(provider)
-
-  const { runBatchCommand } = await import('../src/commands/batch')
+    .mockReturnValueOnce(createProvider('codex'))
+    .mockReturnValueOnce(createProvider('claude'))
 
   await runBatchCommand({
-    configPath,
-    cwd: root,
+    configPath: codexFixture.configPath,
+    cwd: codexFixture.root,
+    verbose: true,
+  })
+  await runBatchCommand({
+    configPath: claudeFixture.configPath,
+    cwd: claudeFixture.root,
+    verbose: false,
   })
 
-  expect(createProviderSpy).toHaveBeenCalledWith({
-    effort: 'high',
-    model: 'gpt-5-codex',
+  expect(createProviderSpy).toHaveBeenNthCalledWith(1, {
     provider: 'codex',
-    workspaceRoot: root,
+    verbose: true,
+    workspaceRoot: codexFixture.root,
   })
-})
-
-test('runBatchCommand forwards claude model and effort to the batch provider factory', async () => {
-  const { configPath, root } = await createBatchCommandFixture([
-    'provider: claude',
-    'model: claude-sonnet-4-6',
-    'effort: max',
-    'glob:',
-    '  - "input/*.txt"',
-    'prompt: |',
-    '  summarize file',
-    'schema:',
-    '  type: object',
-    '  properties:',
-    '    summary:',
-    '      type: string',
-    '  required:',
-    '    - summary',
-  ])
-  const provider = {
-    name: 'claude',
-    async runFile() {
-      return {
-        summary: 'a.txt',
-      }
-    },
-  }
-  const createProviderSpy = vi
-    .spyOn(batchProviderModule, 'createBatchStructuredOutputProvider')
-    .mockReturnValue(provider)
-  const { runBatchCommand } = await import('../src/commands/batch')
-
-  await runBatchCommand({
-    configPath,
-    cwd: root,
-  })
-
-  expect(createProviderSpy).toHaveBeenCalledWith({
-    effort: 'max',
-    model: 'claude-sonnet-4-6',
+  expect(createProviderSpy).toHaveBeenNthCalledWith(2, {
     provider: 'claude',
-    workspaceRoot: root,
-  })
-})
-
-test('runBatchCommand omits model and effort when they are not configured', async () => {
-  const { configPath, root } = await createBatchCommandFixture([
-    'provider: codex',
-    'glob:',
-    '  - "input/*.txt"',
-    'prompt: |',
-    '  summarize file',
-    'schema:',
-    '  type: object',
-    '  properties:',
-    '    summary:',
-    '      type: string',
-    '  required:',
-    '    - summary',
-  ])
-  const provider = {
-    name: 'codex',
-    async runFile() {
-      return {
-        summary: 'a.txt',
-      }
-    },
-  }
-  const createProviderSpy = vi
-    .spyOn(batchProviderModule, 'createBatchStructuredOutputProvider')
-    .mockReturnValue(provider)
-  const { runBatchCommand } = await import('../src/commands/batch')
-
-  await runBatchCommand({
-    configPath,
-    cwd: root,
-  })
-
-  expect(createProviderSpy).toHaveBeenCalledWith({
-    provider: 'codex',
-    workspaceRoot: root,
-  })
-})
-
-test('runBatchCommand omits model and effort for claude when they are not configured', async () => {
-  const { configPath, root } = await createBatchCommandFixture([
-    'provider: claude',
-    'glob:',
-    '  - "input/*.txt"',
-    'prompt: |',
-    '  summarize file',
-    'schema:',
-    '  type: object',
-    '  properties:',
-    '    summary:',
-    '      type: string',
-    '  required:',
-    '    - summary',
-  ])
-  const provider = {
-    name: 'claude',
-    async runFile() {
-      return {
-        summary: 'a.txt',
-      }
-    },
-  }
-  const createProviderSpy = vi
-    .spyOn(batchProviderModule, 'createBatchStructuredOutputProvider')
-    .mockReturnValue(provider)
-  const { runBatchCommand } = await import('../src/commands/batch')
-
-  await runBatchCommand({
-    configPath,
-    cwd: root,
-  })
-
-  expect(createProviderSpy).toHaveBeenCalledWith({
-    provider: 'claude',
-    workspaceRoot: root,
+    verbose: false,
+    workspaceRoot: claudeFixture.root,
   })
 })

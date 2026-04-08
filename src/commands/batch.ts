@@ -158,12 +158,16 @@ async function recycleFailedFiles(
   return nextState
 }
 
-function createProvider(config: BatchConfig): BatchStructuredOutputProvider {
+function createProvider(
+  config: BatchConfig,
+  verbose: boolean | undefined,
+): BatchStructuredOutputProvider {
   if (config.provider === 'codex') {
     return createBatchStructuredOutputProvider({
       provider: 'codex',
       ...(config.effort ? { effort: config.effort } : {}),
       ...(config.model ? { model: config.model } : {}),
+      ...(verbose === undefined ? {} : { verbose }),
       workspaceRoot: config.configDir,
     })
   }
@@ -172,6 +176,7 @@ function createProvider(config: BatchConfig): BatchStructuredOutputProvider {
     provider: 'claude',
     ...(config.effort ? { effort: config.effort } : {}),
     ...(config.model ? { model: config.model } : {}),
+    ...(verbose === undefined ? {} : { verbose }),
     workspaceRoot: config.configDir,
   })
 }
@@ -223,7 +228,7 @@ export async function runBatchCommand(
     await writeJsonAtomic(statePath, state)
 
     try {
-      provider ??= createProvider(config)
+      provider ??= createProvider(config, input.verbose)
       const absoluteFilePath = path.join(config.configDir, filePath)
       const content = await readFile(absoluteFilePath, 'utf8')
       const output = await provider.runFile({
