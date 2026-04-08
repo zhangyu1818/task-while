@@ -1,5 +1,9 @@
 import { ClaudeAgentClient } from '../agents/claude'
 import { CodexAgentClient } from '../agents/codex'
+import {
+  createClaudeEventHandler,
+  createCodexEventHandler,
+} from '../agents/event-log'
 
 import type { WorkflowRoleProviderOptions } from '../agents/provider-options'
 
@@ -17,6 +21,7 @@ export interface BatchStructuredOutputProvider {
 
 export type CreateBatchStructuredOutputProviderInput =
   WorkflowRoleProviderOptions & {
+    verbose?: boolean
     workspaceRoot: string
   }
 
@@ -60,19 +65,23 @@ export function createBatchStructuredOutputProvider(
   input: CreateBatchStructuredOutputProviderInput,
 ): BatchStructuredOutputProvider {
   if (input.provider === 'codex') {
+    const onEvent = createCodexEventHandler(input.verbose)
     return new CodexBatchStructuredOutputProvider(
       new CodexAgentClient({
         ...(input.effort ? { effort: input.effort } : {}),
         ...(input.model ? { model: input.model } : {}),
+        ...(onEvent ? { onEvent } : {}),
         workspaceRoot: input.workspaceRoot,
       }),
     )
   }
 
+  const onEvent = createClaudeEventHandler(input.verbose)
   return new ClaudeBatchStructuredOutputProvider(
     new ClaudeAgentClient({
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.model ? { model: input.model } : {}),
+      ...(onEvent ? { onEvent } : {}),
       workspaceRoot: input.workspaceRoot,
     }),
   )

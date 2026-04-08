@@ -11,14 +11,42 @@ registerHooks({
         source: `
 export class Codex {
   startThread() {
+    const buildFinalResponse = (prompt) => {
+      const filePathMatch = prompt.match(/File path: (.+)/)
+      const filePath = filePathMatch ? filePathMatch[1].trim() : 'unknown'
+      return JSON.stringify({
+        summary: 'processed:' + filePath,
+      })
+    }
+
     return {
       async run(prompt) {
-        const filePathMatch = prompt.match(/File path: (.+)/)
-        const filePath = filePathMatch ? filePathMatch[1].trim() : 'unknown'
         return {
-          finalResponse: JSON.stringify({
-            summary: 'processed:' + filePath,
-          }),
+          finalResponse: buildFinalResponse(prompt),
+        }
+      },
+      async runStreamed(prompt) {
+        const finalResponse = buildFinalResponse(prompt)
+        return {
+          events: (async function* () {
+            yield { thread_id: 'thread-smoke', type: 'thread.started' }
+            yield { type: 'turn.started' }
+            yield {
+              type: 'item.completed',
+              item: {
+                type: 'agent_message',
+                text: finalResponse,
+              },
+            }
+            yield {
+              type: 'turn.completed',
+              usage: {
+                cached_input_tokens: 0,
+                input_tokens: 1,
+                output_tokens: 1,
+              },
+            }
+          })(),
         }
       },
     }
