@@ -117,11 +117,12 @@ test('createBatchStructuredOutputProvider keeps default agent options when model
 })
 
 test('runBatchCommand forwards configured model and effort to the batch provider factory', async () => {
-  const { configPath, inputDir, root } = await createBatchCommandFixture([
+  const { configPath, root } = await createBatchCommandFixture([
     'provider: codex',
     'model: gpt-5-codex',
     'effort: high',
-    'workdir: ./input',
+    'glob:',
+    '  - "input/*.txt"',
     'prompt: |',
     '  summarize file',
     'schema:',
@@ -155,16 +156,17 @@ test('runBatchCommand forwards configured model and effort to the batch provider
     effort: 'high',
     model: 'gpt-5-codex',
     provider: 'codex',
-    workspaceRoot: inputDir,
+    workspaceRoot: root,
   })
 })
 
 test('runBatchCommand forwards claude model and effort to the batch provider factory', async () => {
-  const { configPath, inputDir, root } = await createBatchCommandFixture([
+  const { configPath, root } = await createBatchCommandFixture([
     'provider: claude',
     'model: claude-sonnet-4-6',
     'effort: max',
-    'workdir: ./input',
+    'glob:',
+    '  - "input/*.txt"',
     'prompt: |',
     '  summarize file',
     'schema:',
@@ -197,14 +199,15 @@ test('runBatchCommand forwards claude model and effort to the batch provider fac
     effort: 'max',
     model: 'claude-sonnet-4-6',
     provider: 'claude',
-    workspaceRoot: inputDir,
+    workspaceRoot: root,
   })
 })
 
 test('runBatchCommand omits model and effort when they are not configured', async () => {
-  const { configPath, inputDir, root } = await createBatchCommandFixture([
+  const { configPath, root } = await createBatchCommandFixture([
     'provider: codex',
-    'workdir: ./input',
+    'glob:',
+    '  - "input/*.txt"',
     'prompt: |',
     '  summarize file',
     'schema:',
@@ -235,14 +238,15 @@ test('runBatchCommand omits model and effort when they are not configured', asyn
 
   expect(createProviderSpy).toHaveBeenCalledWith({
     provider: 'codex',
-    workspaceRoot: inputDir,
+    workspaceRoot: root,
   })
 })
 
 test('runBatchCommand omits model and effort for claude when they are not configured', async () => {
-  const { configPath, inputDir, root } = await createBatchCommandFixture([
+  const { configPath, root } = await createBatchCommandFixture([
     'provider: claude',
-    'workdir: ./input',
+    'glob:',
+    '  - "input/*.txt"',
     'prompt: |',
     '  summarize file',
     'schema:',
@@ -273,6 +277,6 @@ test('runBatchCommand omits model and effort for claude when they are not config
 
   expect(createProviderSpy).toHaveBeenCalledWith({
     provider: 'claude',
-    workspaceRoot: inputDir,
+    workspaceRoot: root,
   })
 })

@@ -107,13 +107,13 @@ test('task-while run rejects features missing plan.md', async () => {
   expect(result.stderr).toMatch(/001-demo.*plan\.md/i)
 })
 
-test('task-while batch does not require specs directory', async () => {
+test('task-while batch does not require specs directory and exits cleanly when glob matches nothing', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'while-batch-cli-'))
   await writeFile(
     path.join(root, 'batch.yaml'),
     [
       'provider: codex',
-      'workdir: ./missing',
+      'glob: "missing/**/*.txt"',
       'prompt: |',
       '  summarize file',
       'schema:',
@@ -129,7 +129,7 @@ test('task-while batch does not require specs directory', async () => {
 
   const result = await runCli(['batch', '--config', './batch.yaml'], root)
 
-  expect(result.code).not.toBe(0)
+  expect(result.code).toBe(0)
   expect(result.stderr).not.toMatch(/specs/i)
-  expect(result.stderr).toMatch(/workdir does not exist/i)
+  expect(result.stdout).toContain('processedFiles: []')
 })
