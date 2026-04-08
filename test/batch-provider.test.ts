@@ -79,9 +79,17 @@ const workspaces: string[] = []
 
 type ProviderName = 'claude' | 'codex'
 
-function createBatchConfig(provider: ProviderName) {
+function createBatchConfig(
+  provider: ProviderName,
+  options: {
+    effort?: string
+    model?: string
+  } = {},
+) {
   return [
     `provider: ${provider}`,
+    ...(options.model ? [`model: ${options.model}`] : []),
+    ...(options.effort ? [`effort: ${options.effort}`] : []),
     'glob:',
     '  - "input/*.txt"',
     'prompt: |',
@@ -96,7 +104,13 @@ function createBatchConfig(provider: ProviderName) {
   ]
 }
 
-async function createBatchCommandFixture(provider: ProviderName) {
+async function createBatchCommandFixture(
+  provider: ProviderName,
+  options: {
+    effort?: string
+    model?: string
+  } = {},
+) {
   const root = await mkdtemp(path.join(tmpdir(), 'while-batch-provider-'))
   workspaces.push(root)
   const inputDir = path.join(root, 'input')
@@ -104,7 +118,10 @@ async function createBatchCommandFixture(provider: ProviderName) {
 
   await mkdir(inputDir, { recursive: true })
   await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
-  await writeFile(configPath, [...createBatchConfig(provider), ''].join('\n'))
+  await writeFile(
+    configPath,
+    [...createBatchConfig(provider, options), ''].join('\n'),
+  )
 
   return { configPath, root }
 }
@@ -273,6 +290,44 @@ test('runBatchCommand forwards verbose to the batch provider factory', async () 
   expect(createProviderSpy).toHaveBeenNthCalledWith(2, {
     provider: 'claude',
     verbose: false,
+    workspaceRoot: claudeFixture.root,
+  })
+})
+
+test('runBatchCommand forwards configured model and effort to the batch provider factory', async () => {
+  const { runBatchCommand } = await import('../src/commands/batch')
+  const codexFixture = await createBatchCommandFixture('codex', {
+    effort: 'high',
+    model: 'gpt-5-codex',
+  })
+  const claudeFixture = await createBatchCommandFixture('claude', {
+    effort: 'max',
+    model: 'claude-sonnet-4-6',
+  })
+  const createProviderSpy = vi
+    .spyOn(batchProviderModule, 'createBatchStructuredOutputProvider')
+    .mockReturnValueOnce(createProvider('codex'))
+    .mockReturnValueOnce(createProvider('claude'))
+
+  await runBatchCommand({
+    configPath: codexFixture.configPath,
+    cwd: codexFixture.root,
+  })
+  await runBatchCommand({
+    configPath: claudeFixture.configPath,
+    cwd: claudeFixture.root,
+  })
+
+  expect(createProviderSpy).toHaveBeenNthCalledWith(1, {
+    effort: 'high',
+    model: 'gpt-5-codex',
+    provider: 'codex',
+    workspaceRoot: codexFixture.root,
+  })
+  expect(createProviderSpy).toHaveBeenNthCalledWith(2, {
+    effort: 'max',
+    model: 'claude-sonnet-4-6',
+    provider: 'claude',
     workspaceRoot: claudeFixture.root,
   })
 })
