@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +8,9 @@ import { expect, test } from 'vitest'
 
 const cliEntry = fileURLToPath(
   new URL('../bin/task-while.mjs', import.meta.url),
+)
+const codexSdkHook = fileURLToPath(
+  new URL('../fixtures/smoke/mock-codex-sdk-hook.mjs', import.meta.url),
 )
 
 async function createWorkspace() {
@@ -56,11 +59,14 @@ async function createWorkspaceWithOptions(
   return { featureDir, root }
 }
 
-function runCli(args: string[], cwd: string) {
+function runCli(args: string[], cwd: string, env?: NodeJS.ProcessEnv) {
   return execa(process.execPath, [cliEntry, ...args], {
     cwd,
-    env: process.env,
     reject: false,
+    env: {
+      ...process.env,
+      ...env,
+    },
   }).then((result) => ({
     code: result.exitCode,
     stderr: result.stderr,
@@ -132,4 +138,67 @@ test('task-while batch does not require specs directory and exits cleanly when g
   expect(result.code).toBe(0)
   expect(result.stderr).not.toMatch(/specs/i)
   expect(result.stdout).toContain('processedFiles: []')
+})
+
+test('task-while batch smoke runs through the real CLI and writes state and results beside batch.yaml', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'while-batch-cli-smoke-'))
+  await mkdir(path.join(root, 'src', 'nested'), { recursive: true })
+  await writeFile(path.join(root, 'src', 'a.ts'), 'export const a = 1\n')
+  await writeFile(
+    path.join(root, 'src', 'nested', 'b.ts'),
+    'export const b = 2\n',
+  )
+  await writeFile(
+    path.join(root, 'batch.yaml'),
+    [
+      'provider: codex',
+      'glob:',
+      '  - "src/**/*.ts"',
+      'prompt: |',
+      '  summarize file',
+      'schema:',
+      '  type: object',
+      '  properties:',
+      '    summary:',
+      '      type: string',
+      '  required:',
+      '    - summary',
+      '',
+    ].join('\n'),
+  )
+
+  const existingNodeOptions = process.env.NODE_OPTIONS
+  const nodeOptions = existingNodeOptions
+    ? `${existingNodeOptions} --import=${codexSdkHook}`
+    : `--import=${codexSdkHook}`
+  const result = await runCli(['batch', '--config', './batch.yaml'], root, {
+    NODE_OPTIONS: nodeOptions,
+  })
+
+  expect(result.code).toBe(0)
+  expect(result.stderr).toBe('')
+  expect(result.stdout).toContain(
+    "processedFiles: [ 'src/a.ts', 'src/nested/b.ts' ]",
+  )
+
+  const state = JSON.parse(
+    await readFile(path.join(root, 'state.json'), 'utf8'),
+  ) as {
+    failed: string[]
+    inProgress: string[]
+    pending: string[]
+  }
+  const results = JSON.parse(
+    await readFile(path.join(root, 'results.json'), 'utf8'),
+  ) as Record<string, { summary: string }>
+
+  expect(state).toEqual({
+    failed: [],
+    inProgress: [],
+    pending: [],
+  })
+  expect(results).toEqual({
+    'src/a.ts': { summary: 'processed:src/a.ts' },
+    'src/nested/b.ts': { summary: 'processed:src/nested/b.ts' },
+  })
 })
