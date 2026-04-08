@@ -27,6 +27,77 @@ beforeEach(() => {
   mockState.constructorCalls = 0
 })
 
+test('CodexAgentClient passes prompt and structured output schema to streamed SDK runs', async () => {
+  let receivedPrompt = ''
+  let receivedSchema: Record<string, unknown> | undefined
+
+  mockState.client = {
+    startThread() {
+      return {
+        async run() {
+          throw new Error('run() should not be used in this test')
+        },
+        async runStreamed(prompt, runOptions) {
+          receivedPrompt = prompt
+          receivedSchema = runOptions.outputSchema
+          return {
+            events: (async function* () {
+              yield { thread_id: 'thread-1', type: 'thread.started' as const }
+              yield { type: 'turn.started' as const }
+              yield {
+                type: 'item.completed' as const,
+                item: {
+                  id: 'msg-1',
+                  type: 'agent_message' as const,
+                  text: JSON.stringify({
+                    assumptions: [],
+                    needsHumanAttention: false,
+                    notes: [],
+                    status: 'implemented',
+                    summary: 'done',
+                    taskHandle: 'T001',
+                    unresolvedItems: [],
+                  }),
+                },
+              }
+              yield {
+                type: 'turn.completed' as const,
+                usage: {
+                  cached_input_tokens: 0,
+                  input_tokens: 1,
+                  output_tokens: 1,
+                },
+              }
+            })(),
+          }
+        },
+      }
+    },
+  }
+
+  const client = new CodexAgentClient({
+    workspaceRoot: '/tmp/project',
+    onEvent() {},
+  })
+
+  const result = await client.implement({
+    attempt: 1,
+    generation: 1,
+    lastFindings: [],
+    taskHandle: 'T001',
+    prompt: createTaskPrompt({
+      completionCriteria: ['parser exists'],
+      taskHandle: 'T001',
+      tasksSnippet: '- [ ] T001 Create parser',
+      title: 'Create parser',
+    }),
+  })
+
+  expect(receivedPrompt).toMatch(/Create parser/)
+  expect(receivedSchema?.required).toContain('taskHandle')
+  expect(result.taskHandle).toBe('T001')
+})
+
 test('CodexAgentClient preserves structured item payloads for verbose rendering', async () => {
   const seenItems: unknown[] = []
 
