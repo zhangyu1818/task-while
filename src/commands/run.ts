@@ -1,13 +1,9 @@
+import { createClaudeProvider } from '../agents/claude'
+import { createCodexProvider } from '../agents/codex'
 import {
-  createClaudeProvider,
-  type ClaudeAgentEvent,
-  type ClaudeAgentEventHandler,
-} from '../agents/claude'
-import {
-  createCodexProvider,
-  type CodexThreadEvent,
-  type CodexThreadEventHandler,
-} from '../agents/codex'
+  createClaudeEventHandler,
+  createCodexEventHandler,
+} from '../agents/event-log'
 import { providerOptionsEqual } from '../agents/provider-options'
 import { runWorkflow, type WorkflowRunResult } from '../core/orchestrator'
 import { buildTaskTopology } from '../core/task-topology'
@@ -61,54 +57,6 @@ export type ProviderResolver = (
 export type RemoteReviewerResolver = (
   providerName: WorkflowProvider,
 ) => RemoteReviewerProvider
-
-function writeCodexEvent(event: CodexThreadEvent) {
-  const itemType =
-    event.type === 'item.completed' ||
-    event.type === 'item.started' ||
-    event.type === 'item.updated'
-      ? event.item.type
-      : null
-  process.stderr.write(
-    `[codex] ${event.type}${itemType ? ` ${itemType}` : ''}\n`,
-  )
-  if (
-    event.type === 'item.completed' &&
-    event.item.type === 'agent_message' &&
-    event.item.text?.trim()
-  ) {
-    process.stderr.write(`[codex] message ${event.item.text.trim()}\n`)
-  }
-  if (event.type === 'error') {
-    process.stderr.write(`[codex] error ${event.message}\n`)
-  }
-  if (event.type === 'turn.failed') {
-    process.stderr.write(`[codex] error ${event.error.message}\n`)
-  }
-}
-
-function createCodexEventHandler(
-  verbose: boolean | undefined,
-): CodexThreadEventHandler | undefined {
-  if (!verbose) {
-    return undefined
-  }
-  return writeCodexEvent
-}
-
-function writeClaudeEvent(event: ClaudeAgentEvent) {
-  const detail = event.type === 'text' ? ` ${event.delta}` : ''
-  process.stderr.write(`[claude] ${event.type}${detail}\n`)
-}
-
-function createClaudeEventHandler(
-  verbose: boolean | undefined,
-): ClaudeAgentEventHandler | undefined {
-  if (!verbose) {
-    return undefined
-  }
-  return writeClaudeEvent
-}
 
 function createProviderResolver(
   context: WorkspaceContext,
