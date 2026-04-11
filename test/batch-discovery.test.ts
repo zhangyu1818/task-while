@@ -55,6 +55,22 @@ test('discoverBatchFiles ORs multiple glob patterns and drops duplicates', async
   expect(files).toEqual(['src/a.ts', 'src/b.tsx'])
 })
 
+test('discoverBatchFiles excludes .while runtime directory', async () => {
+  const root = await createWorkspace()
+  const whileDir = path.join(root, '.while', 'state', 'batch')
+  await mkdir(whileDir, { recursive: true })
+  await writeFile(path.join(whileDir, 'task-1.json'), '{}')
+  await writeFile(path.join(root, 'input.json'), '{}')
+
+  const files = await discoverBatchFiles({
+    baseDir: root,
+    excludedFiles: new Set(),
+    patterns: ['**/*.json'],
+  })
+
+  expect(files).toEqual(['input.json'])
+})
+
 test('discoverBatchFiles excludes runtime files even when glob matches them', async () => {
   const root = await createWorkspace()
   const configPath = path.join(root, 'batch.yaml')

@@ -192,6 +192,36 @@ test('resolves glob and result keys relative to batch.yaml directory', async () 
   })
 })
 
+test('includes previously blocked files in failedFiles on rerun', async () => {
+  const root = await createWorkspace()
+  const inputDir = path.join(root, 'input')
+  await mkdir(inputDir, { recursive: true })
+  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
+  await writeFile(path.join(inputDir, 'b.txt'), 'beta\n')
+  const configPath = await writeConfig(root)
+
+  let callCount = 0
+  providerState.provider = {
+    name: 'codex',
+    async runFile(input) {
+      callCount++
+      if (input.filePath === 'input/a.txt') {
+        throw new Error('permanent failure')
+      }
+      return { summary: input.filePath }
+    },
+  }
+
+  const first = await runBatchCommand({ configPath, cwd: root })
+  expect(first.failedFiles).toContain('input/a.txt')
+  expect(first.processedFiles).toContain('input/b.txt')
+
+  callCount = 0
+  const second = await runBatchCommand({ configPath, cwd: root })
+  expect(second.failedFiles).toContain('input/a.txt')
+  expect(callCount).toBe(0)
+})
+
 test('blocks files that permanently fail after retries', async () => {
   const root = await createWorkspace()
   const inputDir = path.join(root, 'input')

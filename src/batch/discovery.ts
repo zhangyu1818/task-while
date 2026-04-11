@@ -24,7 +24,7 @@ export async function discoverBatchFiles(
     absolute: false,
     cwd: input.baseDir,
     dot: true,
-    ignore: ['.git/**', 'node_modules/**'],
+    ignore: ['.git/**', '.while/**', 'node_modules/**'],
     nodir: true,
     posix: true,
   })

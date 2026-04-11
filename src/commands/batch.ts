@@ -123,7 +123,6 @@ export async function runBatchCommand(
     store,
   })
 
-  const failedFiles: string[] = []
   const processedFiles: string[] = []
 
   for await (const event of runSession({
@@ -142,14 +141,14 @@ export async function runBatchCommand(
   })) {
     if (event.type === SessionEventType.SubjectDone) {
       processedFiles.push(event.subjectId)
-    } else if (event.type === SessionEventType.SubjectBlocked) {
-      failedFiles.push(event.subjectId)
     }
   }
 
+  const sets = await scheduler.rebuild()
+
   return {
     config,
-    failedFiles,
+    failedFiles: [...sets.blocked],
     processedFiles,
     results,
     resultsFilePath: resultsPath,
