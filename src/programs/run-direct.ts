@@ -1,4 +1,8 @@
-import { errorRetry, KernelResultKind } from '../harness/kernel'
+import {
+  errorRetry,
+  KernelResultKind,
+  retryBudgetReached,
+} from '../harness/kernel'
 import { TaskStatus } from '../harness/state'
 import { action, sequence } from '../harness/workflow-builders'
 import {
@@ -185,8 +189,7 @@ export function createRunDirectProgram(deps: {
           status: TaskStatus.Replan,
         },
         [RunResult.ReviewRejected]: (input) =>
-          (input.state.phaseIterations[RunPhase.Implement] ?? 0) >=
-          maxIterations
+          retryBudgetReached(input.state, maxIterations)
             ? { nextPhase: null, status: TaskStatus.Blocked }
             : { nextPhase: RunPhase.Implement, status: TaskStatus.Running },
       },
@@ -197,8 +200,7 @@ export function createRunDirectProgram(deps: {
           status: TaskStatus.Running,
         },
         [RunResult.VerifyFailed]: (input) =>
-          (input.state.phaseIterations[RunPhase.Implement] ?? 0) >=
-          maxIterations
+          retryBudgetReached(input.state, maxIterations)
             ? { nextPhase: null, status: TaskStatus.Blocked }
             : { nextPhase: RunPhase.Implement, status: TaskStatus.Running },
       },

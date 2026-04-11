@@ -1,4 +1,9 @@
-import { createInitialState, TaskStatus, type Artifact } from './state'
+import {
+  createInitialState,
+  TaskStatus,
+  type Artifact,
+  type TaskState,
+} from './state'
 import {
   WorkflowNodeType,
   type DomainResult,
@@ -18,10 +23,14 @@ export enum KernelResultKind {
   GatePass = 'gate.pass',
 }
 
+export function retryBudgetReached(state: TaskState, maxIterations: number) {
+  return Math.max(0, ...Object.values(state.phaseIterations)) >= maxIterations
+}
+
 export function errorRetry(maxIterations: number) {
   return (retryPhase: string): TransitionRule =>
     (input) =>
-      (input.state.phaseIterations[retryPhase] ?? 0) >= maxIterations
+      retryBudgetReached(input.state, maxIterations)
         ? { nextPhase: null, status: TaskStatus.Blocked }
         : { nextPhase: retryPhase, status: TaskStatus.Running }
 }

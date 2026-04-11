@@ -68,7 +68,7 @@ Current status:
 - `workflow.mode: pull-request` pushes a task branch, polls GitHub PR review from `chatgpt-codex-connector[bot]`, then squash-merges on approval
 - in `workflow.mode: pull-request`, reviewer `provider` still selects the remote reviewer, but any local reviewer `model` and `effort` values are ignored
 - `workflow.mode: pull-request` currently supports only `codex` as the remote reviewer provider
-- `task.maxIterations` uses the same configured limit for every task in the selected source session; retry accounting remains phase-specific according to the workflow transition rules
+- `task.maxIterations` uses the same configured limit for every task in the selected source session; run workflow retries share a single per-task budget across phases
 
 Example pull-request mode:
 

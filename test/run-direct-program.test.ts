@@ -73,7 +73,7 @@ describe('run-direct program', () => {
     })
   })
 
-  test('ReviewRejected loops back to implement under budget', () => {
+  test('ReviewRejected loops back to implement under task budget', () => {
     const program = buildProgram(5)
     const rule =
       program.transitions[RunPhase.Review]![RunResult.ReviewRejected]!
@@ -87,7 +87,7 @@ describe('run-direct program', () => {
     })
   })
 
-  test('ReviewRejected blocks when implement budget exhausted', () => {
+  test('ReviewRejected blocks when task budget exhausted', () => {
     const program = buildProgram(3)
     const rule =
       program.transitions[RunPhase.Review]![RunResult.ReviewRejected]!
@@ -101,7 +101,7 @@ describe('run-direct program', () => {
     })
   })
 
-  test('VerifyFailed loops back to implement under budget', () => {
+  test('VerifyFailed loops back to implement under task budget', () => {
     const program = buildProgram(5)
     const rule = program.transitions[RunPhase.Verify]![RunResult.VerifyFailed]!
     const transition = resolveRule(
@@ -114,7 +114,7 @@ describe('run-direct program', () => {
     })
   })
 
-  test('VerifyFailed blocks when implement budget exhausted', () => {
+  test('VerifyFailed blocks when task budget exhausted', () => {
     const program = buildProgram(3)
     const rule = program.transitions[RunPhase.Verify]![RunResult.VerifyFailed]!
     const transition = resolveRule(
@@ -157,7 +157,7 @@ describe('run-direct program', () => {
     }
   })
 
-  test('verify/review errors route to implement using implement budget', () => {
+  test('verify/review errors route to implement using task budget', () => {
     const program = buildProgram(3)
     for (const phase of [RunPhase.Verify, RunPhase.Review]) {
       const rule = program.transitions[phase]![KernelResultKind.Error]!
@@ -179,6 +179,44 @@ describe('run-direct program', () => {
     const transition = resolveRule(
       rule,
       makeState({ phaseIterations: { [RunPhase.Implement]: 3 } }),
+    )
+    expect(transition).toStrictEqual({
+      nextPhase: null,
+      status: TaskStatus.Blocked,
+    })
+  })
+
+  test('ReviewRejected blocks when another phase already exhausted task budget', () => {
+    const program = buildProgram(3)
+    const rule =
+      program.transitions[RunPhase.Review]![RunResult.ReviewRejected]!
+    const transition = resolveRule(
+      rule,
+      makeState({
+        phaseIterations: {
+          [RunPhase.Contract]: 3,
+          [RunPhase.Implement]: 1,
+        },
+      }),
+    )
+    expect(transition).toStrictEqual({
+      nextPhase: null,
+      status: TaskStatus.Blocked,
+    })
+  })
+
+  test('action error blocks when another phase already exhausted task budget', () => {
+    const program = buildProgram(3)
+    const rule =
+      program.transitions[RunPhase.Integrate]![KernelResultKind.Error]!
+    const transition = resolveRule(
+      rule,
+      makeState({
+        phaseIterations: {
+          [RunPhase.Contract]: 3,
+          [RunPhase.Integrate]: 1,
+        },
+      }),
     )
     expect(transition).toStrictEqual({
       nextPhase: null,

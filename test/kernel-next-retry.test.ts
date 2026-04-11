@@ -156,7 +156,7 @@ describe('kernel-next runKernel retry and restore paths', () => {
     expect(seen[0]).toEqual({ verdict: 'approved' })
   })
 
-  test('global iteration budget is per-implement-cycle, not per-phase', async () => {
+  test('custom transition rules can share a retry budget through phaseIterations', async () => {
     let implementCount = 0
     let verifyCount = 0
 
