@@ -36,6 +36,7 @@ function buildProgram(maxIterations = 5) {
     implementer: {} as never,
     maxIterations,
     reviewer: {} as never,
+    reviewPollIntervalMs: 0,
     verifyCommands: ['echo ok'],
     workspaceRoot: '/tmp',
     ports: {
@@ -54,16 +55,6 @@ describe('run-pr program', () => {
     expect(transition).toStrictEqual({
       nextPhase: RunPhase.Checkpoint,
       status: TaskStatus.Running,
-    })
-  })
-
-  test('review.pending suspends execution', () => {
-    const program = buildProgram()
-    const rule = program.transitions[RunPhase.Review]![RunResult.ReviewPending]!
-    const transition = resolveRule(rule, makeState())
-    expect(transition).toStrictEqual({
-      nextPhase: RunPhase.Review,
-      status: TaskStatus.Suspended,
     })
   })
 

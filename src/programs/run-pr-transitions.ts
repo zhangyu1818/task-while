@@ -64,10 +64,6 @@ export function createRunPrTransitions(
         nextPhase: RunPhase.Integrate,
         status: TaskStatus.Running,
       },
-      [RunResult.ReviewPending]: {
-        nextPhase: RunPhase.Review,
-        status: TaskStatus.Suspended,
-      },
       [RunResult.ReviewReplanRequired]: {
         nextPhase: null,
         status: TaskStatus.Replan,

@@ -241,3 +241,26 @@ test('blocks files that permanently fail after retries', async () => {
   expect(result.processedFiles).toEqual([])
   expect(result.failedFiles).toEqual(['input/a.txt'])
 })
+
+test('retries and blocks files when local schema validation fails', async () => {
+  const root = await createWorkspace()
+  const inputDir = path.join(root, 'input')
+  await mkdir(inputDir, { recursive: true })
+  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
+  const configPath = await writeConfig(root)
+
+  providerState.provider = {
+    name: 'codex',
+    async runFile(input) {
+      providerState.inputs.push(input)
+      return { wrong: input.filePath }
+    },
+  }
+
+  const result = await runBatchCommand({ configPath, cwd: root })
+
+  expect(providerState.inputs).toHaveLength(3)
+  expect(result.processedFiles).toEqual([])
+  expect(result.failedFiles).toEqual(['input/a.txt'])
+  expect(await readBatchResults(root)).toEqual({})
+})

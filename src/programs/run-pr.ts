@@ -2,6 +2,7 @@ import {
   cleanupBranch,
   ensureTaskBranch,
   runPrCheckpoint,
+  sleep,
   toTaskBranchName,
 } from '../commands/run-branch-helpers'
 import { action, sequence } from '../harness/workflow-builders'
@@ -37,10 +38,12 @@ export function createRunPrProgram(deps: {
   maxIterations: number
   ports: RuntimePorts & { codeHost: CodeHostPort }
   reviewer: AgentPort
+  reviewPollIntervalMs?: number
   verifyCommands: string[]
   workspaceRoot: string
 }): WorkflowProgram {
   const { maxIterations } = deps
+  const reviewPollIntervalMs = deps.reviewPollIntervalMs ?? 60_000
   const steps: SharedSteps = createSharedSteps({
     implementer: deps.implementer,
     ports: deps.ports,
@@ -137,26 +140,34 @@ export function createRunPrProgram(deps: {
           const contractArtifact = ctx.artifacts.get<ContractPayload>(
             RunArtifactKind.Contract,
           )
-          const snapshot = await deps.ports.codeHost.getPullRequestSnapshot({
-            pullRequestNumber: checkpointArtifact!.payload.prNumber,
-          })
-          const reviewResult = await remoteReviewer.evaluatePullRequestReview({
-            pullRequest: snapshot,
-            taskHandle: ctx.subjectId,
-            checkpointStartedAt:
-              checkpointArtifact!.payload.checkpointStartedAt,
-            completionCriteria:
-              contractArtifact?.payload.completionCriteria ?? [],
-          })
+          let reviewResult: Awaited<
+            ReturnType<typeof remoteReviewer.evaluatePullRequestReview>
+          >
+          for (;;) {
+            const snapshot = await deps.ports.codeHost.getPullRequestSnapshot({
+              pullRequestNumber: checkpointArtifact!.payload.prNumber,
+            })
+            reviewResult = await remoteReviewer.evaluatePullRequestReview({
+              pullRequest: snapshot,
+              taskHandle: ctx.subjectId,
+              checkpointStartedAt:
+                checkpointArtifact!.payload.checkpointStartedAt,
+              completionCriteria:
+                contractArtifact?.payload.completionCriteria ?? [],
+            })
+            if (reviewResult.kind !== 'pending') {
+              break
+            }
+            if (reviewPollIntervalMs > 0) {
+              await sleep(reviewPollIntervalMs)
+            }
+          }
 
           let verdict: string
           let findings: ReviewPayload['findings'] = []
           let summary: string
 
-          if (reviewResult.kind === 'pending') {
-            verdict = 'pending'
-            summary = 'Waiting for remote review'
-          } else if (reviewResult.kind === 'approved') {
+          if (reviewResult.kind === 'approved') {
             verdict = 'approved'
             summary = reviewResult.review.summary
           } else {
@@ -172,9 +183,7 @@ export function createRunPrProgram(deps: {
           const kind =
             verdict === 'approved'
               ? RunResult.ReviewApproved
-              : verdict === 'pending'
-                ? RunResult.ReviewPending
-                : RunResult.ReviewRejected
+              : RunResult.ReviewRejected
 
           const payload: ReviewPayload = {
             findings,

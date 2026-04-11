@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import Ajv from 'ajv'
 import * as fsExtra from 'fs-extra'
 import { z } from 'zod'
 
@@ -82,6 +83,17 @@ function createProvider(
   })
 }
 
+function createOutputValidator(schema: Record<string, unknown>) {
+  const ajv = new Ajv({ strict: false })
+  const validate = ajv.compile(schema)
+  return (value: unknown) => {
+    if (validate(value)) {
+      return
+    }
+    throw new Error(ajv.errorsText(validate.errors))
+  }
+}
+
 export async function runBatchCommand(
   input: RunBatchCommandInput,
 ): Promise<RunBatchCommandResult> {
@@ -102,6 +114,7 @@ export async function runBatchCommand(
   await writeJsonAtomic(resultsPath, results)
 
   const provider = createProvider(config, input.verbose)
+  const validateOutput = createOutputValidator(config.schema)
   const harnessDir = createRuntimePaths(config.configDir).runtimeDir
   const store = createFsHarnessStore(harnessDir)
   const protocol = 'batch'
@@ -114,6 +127,7 @@ export async function runBatchCommand(
     provider,
     results,
     resultsPath,
+    validateOutput,
   })
 
   const scheduler = createBatchRetryScheduler({

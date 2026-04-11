@@ -5,6 +5,10 @@ import { pathExists, readJson } from 'fs-extra'
 
 import type { HarnessStore } from '../../harness/store'
 
+function encodeArtifactFileName(artifactId: string) {
+  return encodeURIComponent(artifactId)
+}
+
 export function createFsHarnessStore(root: string): HarnessStore {
   const stateFile = (protocol: string, subjectId: string) =>
     path.join(root, 'state', protocol, `${encodeURIComponent(subjectId)}.json`)
@@ -19,7 +23,7 @@ export function createFsHarnessStore(root: string): HarnessStore {
       'artifacts',
       protocol,
       encodeURIComponent(subjectId),
-      `${artifactId}.json`,
+      `${encodeArtifactFileName(artifactId)}.json`,
     )
 
   const artifactDir = (protocol: string, subjectId: string) =>

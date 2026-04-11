@@ -35,6 +35,7 @@ export function createBatchProgram(deps: {
   provider: BatchStructuredOutputProvider
   results: Record<string, unknown>
   resultsPath: string
+  validateOutput: (value: unknown) => void
 }): WorkflowProgram {
   return sequence(
     [
@@ -70,6 +71,7 @@ export function createBatchProgram(deps: {
               outputSchema: deps.outputSchema,
               prompt: deps.prompt,
             })
+            deps.validateOutput(output)
             const artifact: Artifact<{ output: unknown }> = {
               id: `${encodeURIComponent(ctx.subjectId)}:${BatchArtifactKind.ProcessResult}`,
               kind: BatchArtifactKind.ProcessResult,

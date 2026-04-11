@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -121,4 +121,42 @@ runStoreTests('filesystem', async () => {
     store: createFsHarnessStore(root),
     cleanup: () => rm(root, { force: true, recursive: true }),
   }
+})
+
+describe('filesystem harness store path safety', () => {
+  test('encodes artifact filenames when id contains colon', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'while-store-'))
+    const store = createFsHarnessStore(root)
+    const artifact = {
+      id: 'prepare:input%2Fa.txt',
+      kind: 'prepare',
+      payload: { filePath: 'input/a.txt' },
+      subjectId: 'input/a.txt',
+      timestamp: '2026-04-10T00:00:00.000Z',
+    }
+
+    try {
+      await store.saveArtifact('batch', 'input/a.txt', artifact)
+
+      const dir = path.join(
+        root,
+        'artifacts',
+        'batch',
+        encodeURIComponent('input/a.txt'),
+      )
+      const entries = await readdir(dir)
+
+      expect(entries).toHaveLength(1)
+      expect(entries[0]).not.toContain(':')
+
+      const loaded = await store.loadArtifact(
+        'batch',
+        'input/a.txt',
+        'prepare:input%2Fa.txt',
+      )
+      expect(loaded).toStrictEqual(artifact)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
 })
