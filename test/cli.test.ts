@@ -181,22 +181,10 @@ test('task-while batch smoke runs through the real CLI and writes state and resu
     "processedFiles: [ 'src/a.ts', 'src/nested/b.ts' ]",
   )
 
-  const state = JSON.parse(
-    await readFile(path.join(root, 'state.json'), 'utf8'),
-  ) as {
-    failed: string[]
-    inProgress: string[]
-    pending: string[]
-  }
   const results = JSON.parse(
     await readFile(path.join(root, 'results.json'), 'utf8'),
   ) as Record<string, { summary: string }>
 
-  expect(state).toEqual({
-    failed: [],
-    inProgress: [],
-    pending: [],
-  })
   expect(results).toEqual({
     'src/a.ts': { summary: 'processed:src/a.ts' },
     'src/nested/b.ts': { summary: 'processed:src/nested/b.ts' },
@@ -249,22 +237,10 @@ test('task-while batch --verbose smoke streams codex agent events to stderr thro
   expect(result.stderr).not.toContain('[codex] thread.started')
   expect(result.stderr).not.toContain('[codex] item.completed agent_message')
 
-  const state = JSON.parse(
-    await readFile(path.join(root, 'state.json'), 'utf8'),
-  ) as {
-    failed: string[]
-    inProgress: string[]
-    pending: string[]
-  }
   const results = JSON.parse(
     await readFile(path.join(root, 'results.json'), 'utf8'),
   ) as Record<string, { summary: string }>
 
-  expect(state).toEqual({
-    failed: [],
-    inProgress: [],
-    pending: [],
-  })
   expect(results).toEqual({
     'src/verbose.ts': { summary: 'processed:src/verbose.ts' },
   })

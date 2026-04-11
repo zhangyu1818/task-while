@@ -36,6 +36,9 @@ test('loadWorkflowConfig defaults to direct codex roles when while.yaml is absen
       maxIterations: 5,
       source: 'spec-kit',
     },
+    verify: {
+      commands: [],
+    },
     workflow: {
       mode: 'direct',
       roles: {
@@ -65,6 +68,9 @@ test('loadWorkflowConfig parses configured role providers from yaml mappings', a
     task: {
       maxIterations: 5,
       source: 'spec-kit',
+    },
+    verify: {
+      commands: [],
     },
     workflow: {
       mode: 'direct',
@@ -98,6 +104,9 @@ test('loadWorkflowConfig parses pull-request mode without rewriting it to direct
     task: {
       maxIterations: 7,
       source: 'spec-kit',
+    },
+    verify: {
+      commands: [],
     },
     workflow: {
       mode: 'pull-request',
@@ -223,6 +232,9 @@ test('loadWorkflowConfig preserves a custom task source string while keeping spe
       maxIterations: 5,
       source: 'openspec',
     },
+    verify: {
+      commands: [],
+    },
     workflow: {
       mode: 'direct',
       roles: {
@@ -249,4 +261,26 @@ test('loadWorkflowConfig rejects unknown keys instead of silently defaulting', a
   await expect(loadWorkflowConfig(workspaceRoot)).rejects.toThrow(
     /proivder|unrecognized|discriminator/i,
   )
+})
+
+test('loadWorkflowConfig reads verify.commands from yaml', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    [
+      'verify:',
+      '  commands:',
+      '    - pnpm lint:fix',
+      '    - pnpm test',
+      '',
+    ].join('\n'),
+  )
+  const config = await loadWorkflowConfig(workspaceRoot)
+  expect(config.verify).toEqual({ commands: ['pnpm lint:fix', 'pnpm test'] })
+})
+
+test('loadWorkflowConfig defaults verify.commands to empty array', async () => {
+  const workspaceRoot = await createWorkspace()
+  const config = await loadWorkflowConfig(workspaceRoot)
+  expect(config.verify).toEqual({ commands: [] })
 })

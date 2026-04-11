@@ -1,14 +1,14 @@
 # task-while
 
-`task-while` is a git-first task orchestrator built around a task source protocol. The published package name and CLI binary are both `task-while`.
+`task-while` is a git-first harness runtime built around a task source protocol. The published package name and CLI binary are both `task-while`.
 
 It reads workflow settings from `while.yaml`, opens the configured task source, executes one task at a time, reviews the result, integrates approved work, and creates one git commit per completed task. The built-in task sources are `spec-kit`, which consumes `spec.md`, `plan.md`, and `tasks.md` under `specs/<feature>/`, and `openspec`, which consumes an OpenSpec change under `openspec/changes/<change>/`.
 
-It also provides a standalone `batch` command for YAML-driven file processing that is independent from the feature/task orchestration workflow.
+It also provides a standalone `batch` command for YAML-driven file processing that is independent from the feature/task harness runtime workflow.
 
 ## Requirements
 
-- Node.js 18 or newer
+- Node.js 24 or newer
 - For `run`: a git repository with an initial commit
 - For `run`: a workspace with the directory layout required by the selected task source
 - For `run`: the files required by the selected task source
@@ -68,7 +68,7 @@ Current status:
 - `workflow.mode: pull-request` pushes a task branch, polls GitHub PR review from `chatgpt-codex-connector[bot]`, then squash-merges on approval
 - in `workflow.mode: pull-request`, reviewer `provider` still selects the remote reviewer, but any local reviewer `model` and `effort` values are ignored
 - `workflow.mode: pull-request` currently supports only `codex` as the remote reviewer provider
-- `task.maxIterations` applies globally to every task in the selected source session
+- `task.maxIterations` uses the same configured limit for every task in the selected source session; retry accounting remains phase-specific according to the workflow transition rules
 
 Example pull-request mode:
 
@@ -160,14 +160,13 @@ Batch behavior:
 - batch `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
 - batch `claude` `effort` accepts `low`, `medium`, `high`, or `max`
 - each run scans files under the `batch.yaml` directory and filters them by `glob`
-- execution state is written beside the YAML file in `state.json`
 - structured results are written beside the YAML file in `results.json`
+- internal harness state is written under `.while/harness/` beside the YAML file
 - result keys are relative to the directory that contains `batch.yaml`
 - `--verbose` streams direct provider details to `stderr` during batch execution, including Claude init/task/tool/result summaries and Codex thinking, commands, MCP tools, file updates, todo changes, messages, and final usage
 - rerunning the command resumes unfinished work and skips files that already have accepted results
-- when the current `pending` queue is exhausted and `failed` is non-empty, the command persists a recycle transition that moves `failed` back into `pending` for the next round
-- the command exits only when both `pending` and `failed` are empty
-- there is no retry limit for file-level failures; failed files continue to be retried round by round
+- failed files are suspended and retried after all pending files are processed
+- file-level retries are limited by `maxRetries` (default 3); exhausted files are marked blocked
 - when `glob` matches no files, the command exits successfully without initializing a provider
 
 ## Task Lifecycle
@@ -261,51 +260,50 @@ task:
 
 ## What `task-while` Does Not Do
 
-`task-while` does not replace Spec Kit's project-level workflow. It does not run Spec Kit commands, checklists, hooks, or preset-installed skills.
+`task-while` does not replace Spec Kit's project-level workflow. It does not run Spec Kit commands, checklists, or hooks.
 
 Its contract with the selected task source is simple:
 
 - the task source parses source artifacts and provides prompts plus completion operations
-- `task-while` orchestrates implement, review, integrate, and persistence around that protocol
+- the harness runtime drives implement, review, integrate, and persistence around that protocol
 
 The standalone `batch` command is separate from this contract. It does not use task sources, task graphs, review/integrate stages, or git-first completion.
+
+## Architecture
+
+`task-while` uses a state-machine control plane:
+
+- **TaskState** per subject is the single source of truth, written atomically as JSON
+- **Transition log** (append-only JSONL) records phase transitions for debugging
+- **Artifacts** store large structured outputs (contracts, reviews, implementations) separately
+- A **pure kernel interpreter** executes typed workflow programs (action/gate/branch nodes + declarative transition tables)
+- A **session layer** drives multi-subject scheduling via pluggable schedulers
+- All external effects flow through unified **ports** (AgentPort, CodeHostPort, GitPort)
 
 ## Runtime Layout
 
 `run` keeps runtime state under:
 
 ```text
-<source-entry>/<id>/.while/
+<source-entry>/<id>/.while/harness/
+  state/<protocol>/<subject-id>.json         — TaskState per subject (truth)
+  transitions/<protocol>/<subject-id>.jsonl  — TransitionRecord log (debug)
+  artifacts/<protocol>/<subject-id>/*.json   — Artifact per kind/iteration
 ```
 
-Important files:
-
-- `state.json`
-- `graph.json`
-- `report.json`
-- `events.jsonl`
-- `tasks/<taskHandle>/g<generation>/a<attempt>/implement.json`
-- `tasks/<taskHandle>/g<generation>/a<attempt>/review.json`
-- `tasks/<taskHandle>/g<generation>/a<attempt>/integrate.json`
-
-`.while` is runtime state, not the long-term source of truth. Pull-request review recovery reloads persisted `implement` artifacts by `taskHandle`, `generation`, and `attempt`.
+`.while` is runtime state, not the long-term source of truth. Resume reads the state file directly — no event replay needed.
 
 `batch` keeps runtime files beside the YAML config:
 
 ```text
 <config-dir>/
 ├── batch.yaml
-├── state.json
-└── results.json
+├── results.json
+└── .while/harness/
+    ├── state/batch/*.json
+    ├── transitions/batch/*.jsonl
+    └── artifacts/batch/...
 ```
-
-`state.json` contains:
-
-- `pending`
-- `inProgress`
-- `failed`
-
-`failed` is the current round's failure buffer. When `pending` becomes empty, those paths are persisted back into `pending` and retried in the next round. Historical state entries whose files no longer exist are dropped when a new run starts.
 
 `results.json` maps accepted structured output by file path relative to the `batch.yaml` directory. If the config lives under a subdirectory and uses patterns such as `../input/*.txt`, the keys keep that relative form.
 

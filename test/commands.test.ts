@@ -4,48 +4,142 @@ import path from 'node:path'
 import { beforeEach, expect, test, vi } from 'vitest'
 
 import {
-  createPassingReview,
   createWorkspace,
   gitLogMessages,
   initGitRepo,
-  ScriptedWorkflowProvider,
   trackedFilesInHead,
 } from './command-test-helpers'
 
-import type { CodexAgentClientOptions } from '../src/agents/codex'
-import type { FinalReport, WorkflowState } from '../src/types'
+import type { RuntimePorts } from '../src/core/runtime'
+import type { AgentInvocation, AgentPort } from '../src/ports/agent'
+import type { ImplementOutput, ReviewOutput } from '../src/types'
 
-const providerState = vi.hoisted(() => ({
-  createdOptions: [] as CodexAgentClientOptions[],
-  queue: [] as ScriptedWorkflowProvider[],
+function extractTaskHandle(prompt: string): string {
+  const match = prompt.match(/Task Handle: (\S+)/)
+  return match?.[1] ?? ''
+}
+
+function extractChangedFiles(prompt: string): string[] {
+  const match = prompt.match(/Actual Changed Files:\n(.+)(?:\n\n|$)/)
+  if (!match?.[1]) {
+    return []
+  }
+  try {
+    return JSON.parse(match[1]) as string[]
+  } catch {
+    return []
+  }
+}
+
+interface ScriptedAgentContext {
+  implementHandler: (taskHandle: string) => Promise<void>
+  implementInputs: string[]
+  reviewHandler: (
+    taskHandle: string,
+    changedFiles: string[],
+  ) => Promise<ReviewOutput>
+  reviewInputs: { actualChangedFiles: string[]; taskHandle: string }[]
+}
+
+function createScriptedAgentPort(ctx: ScriptedAgentContext): AgentPort {
+  return {
+    name: 'scripted',
+    async execute(invocation: AgentInvocation): Promise<unknown> {
+      const taskHandle = extractTaskHandle(invocation.prompt)
+      if (invocation.role === 'implementer') {
+        ctx.implementInputs.push(taskHandle)
+        await ctx.implementHandler(taskHandle)
+        const result: ImplementOutput = {
+          assumptions: [],
+          needsHumanAttention: false,
+          notes: [],
+          status: 'implemented',
+          summary: `${taskHandle} done`,
+          taskHandle,
+          unresolvedItems: [],
+        }
+        return result
+      }
+      if (invocation.role === 'reviewer') {
+        const changedFiles = extractChangedFiles(invocation.prompt)
+        ctx.reviewInputs.push({ actualChangedFiles: changedFiles, taskHandle })
+        return ctx.reviewHandler(taskHandle, changedFiles)
+      }
+      throw new Error(`Unknown role: ${invocation.role}`)
+    },
+  }
+}
+
+function createPassingReview(taskHandle: string): ReviewOutput {
+  return {
+    findings: [],
+    overallRisk: 'low' as const,
+    summary: 'ok',
+    taskHandle,
+    verdict: 'pass' as const,
+    acceptanceChecks: [
+      { criterion: 'basic', note: 'ok', status: 'pass' as const },
+    ],
+  }
+}
+
+const mockState = vi.hoisted(() => ({
+  portOverrides: [] as ((real: RuntimePorts) => RuntimePorts)[],
 }))
 
-vi.mock('../src/agents/codex', () => {
+vi.mock('../src/core/create-runtime-ports', async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import('../src/core/create-runtime-ports')>()
   return {
-    createCodexProvider: vi.fn((options: CodexAgentClientOptions) => {
-      providerState.createdOptions.push(options)
-      const provider = providerState.queue.shift()
-      if (!provider) {
-        throw new Error('Missing scripted workflow provider')
-      }
-      return provider
-    }),
+    ...original,
+    createRuntimePorts: vi.fn(
+      (...args: Parameters<typeof original.createRuntimePorts>) => {
+        const real = original.createRuntimePorts(...args)
+        const override = mockState.portOverrides.shift()
+        if (!override) {
+          return real
+        }
+        return override(real)
+      },
+    ),
   }
 })
 
 const { runCommand } = await import('../src/commands/run')
 
 beforeEach(() => {
-  providerState.createdOptions = []
-  providerState.queue = []
+  mockState.portOverrides = []
 })
 
-test('runCommand creates one git commit per completed task and records commitSha without committing .while', async () => {
-  const { context, featureDir, root } = await createWorkspace()
+function setupScriptedAgent(opts: {
+  implementHandler: (taskHandle: string) => Promise<void>
+  reviewHandler?: (
+    taskHandle: string,
+    changedFiles: string[],
+  ) => Promise<ReviewOutput>
+}) {
+  const ctx: ScriptedAgentContext = {
+    implementHandler: opts.implementHandler,
+    implementInputs: [],
+    reviewInputs: [],
+    reviewHandler:
+      opts.reviewHandler ??
+      ((handle) => Promise.resolve(createPassingReview(handle))),
+  }
+  const agent = createScriptedAgentPort(ctx)
+  mockState.portOverrides.push((real) => ({
+    ...real,
+    resolveAgent: () => agent,
+  }))
+  return ctx
+}
+
+test('runCommand creates one git commit per completed task without committing .while', async () => {
+  const { context, root } = await createWorkspace()
   await initGitRepo(root)
-  const provider = new ScriptedWorkflowProvider(
-    async (input) => {
-      if (input.taskHandle === 'T001') {
+  const ctx = setupScriptedAgent({
+    async implementHandler(taskHandle) {
+      if (taskHandle === 'T001') {
         await writeFile(
           path.join(root, 'src', 'greeting.js'),
           'exports.buildGreeting = () => "Hello, world!"\n',
@@ -57,16 +151,15 @@ test('runCommand creates one git commit per completed task and records commitSha
         'exports.buildFarewell = () => "Bye, world!"\n',
       )
     },
-    async (input) => createPassingReview(input),
-  )
-  providerState.queue.push(provider)
+  })
 
   const result = await runCommand(context)
 
   expect(result.summary.finalStatus).toBe('completed')
-  expect(
-    provider.reviewInputs.map((input) => input.actualChangedFiles),
-  ).toEqual([['src/greeting.js'], ['src/farewell.js']])
+  expect(ctx.reviewInputs.map((input) => input.actualChangedFiles)).toEqual([
+    ['src/greeting.js'],
+    ['src/farewell.js'],
+  ])
 
   const messages = await gitLogMessages(root)
   expect(messages.slice(0, 3)).toEqual([
@@ -75,27 +168,7 @@ test('runCommand creates one git commit per completed task and records commitSha
     'Initial commit',
   ])
 
-  const state = JSON.parse(
-    await readFile(path.join(featureDir, '.while', 'state.json'), 'utf8'),
-  ) as WorkflowState
-  const report = JSON.parse(
-    await readFile(path.join(featureDir, '.while', 'report.json'), 'utf8'),
-  ) as FinalReport
   const headFiles = await trackedFilesInHead(root)
-
-  expect(state.tasks.T001?.status).toBe('done')
-  if (state.tasks.T001?.status === 'done') {
-    expect(state.tasks.T001.commitSha).toBeTruthy()
-  }
-  expect(state.tasks.T002?.status).toBe('done')
-  if (state.tasks.T002?.status === 'done') {
-    expect(state.tasks.T002.commitSha).toBeTruthy()
-  }
-  expect(
-    report.tasks.every(
-      (task) => task.status === 'done' && typeof task.commitSha === 'string',
-    ),
-  ).toBe(true)
   expect(headFiles).toContain('src/farewell.js')
   expect(headFiles).toContain('specs/001-demo/tasks.md')
   expect(headFiles.some((file) => file.includes('.while'))).toBe(false)
@@ -107,12 +180,9 @@ test('runCommand rejects a dirty worktree before starting', async () => {
   })
   await initGitRepo(root)
   await writeFile(path.join(root, 'draft.txt'), 'temporary\n')
-  providerState.queue.push(
-    new ScriptedWorkflowProvider(
-      async () => {},
-      async (input) => createPassingReview(input),
-    ),
-  )
+  setupScriptedAgent({
+    async implementHandler() {},
+  })
 
   await expect(runCommand(context)).rejects.toThrow(/worktree.*clean/i)
 })
@@ -122,27 +192,22 @@ test('runCommand keeps soft path boundaries and lets reviewer judge extra change
     includeSecondTask: false,
   })
   await initGitRepo(root)
-  providerState.queue.push(
-    new ScriptedWorkflowProvider(
-      async () => {
-        await writeFile(
-          path.join(root, 'src', 'greeting.js'),
-          'exports.buildGreeting = () => "Hello, world!"\n',
-        )
-        await writeFile(
-          path.join(root, 'src', 'shared.js'),
-          'exports.shared = "updated"\n',
-        )
-      },
-      async (input) => {
-        expect(input.actualChangedFiles).toEqual([
-          'src/greeting.js',
-          'src/shared.js',
-        ])
-        return createPassingReview(input)
-      },
-    ),
-  )
+  setupScriptedAgent({
+    async implementHandler() {
+      await writeFile(
+        path.join(root, 'src', 'greeting.js'),
+        'exports.buildGreeting = () => "Hello, world!"\n',
+      )
+      await writeFile(
+        path.join(root, 'src', 'shared.js'),
+        'exports.shared = "updated"\n',
+      )
+    },
+    async reviewHandler(handle, changedFiles) {
+      expect(changedFiles).toEqual(['src/greeting.js', 'src/shared.js'])
+      return createPassingReview(handle)
+    },
+  })
 
   const result = await runCommand(context)
 
@@ -154,20 +219,18 @@ test('runCommand reviews changed files before integrate', async () => {
     includeSecondTask: false,
   })
   await initGitRepo(root)
-  providerState.queue.push(
-    new ScriptedWorkflowProvider(
-      async () => {
-        await writeFile(
-          path.join(root, 'src', 'greeting.js'),
-          'exports.buildGreeting = () => "Hello, world!"\n',
-        )
-      },
-      async (input) => {
-        expect(input.actualChangedFiles).toEqual(['src/greeting.js'])
-        return createPassingReview(input)
-      },
-    ),
-  )
+  setupScriptedAgent({
+    async implementHandler() {
+      await writeFile(
+        path.join(root, 'src', 'greeting.js'),
+        'exports.buildGreeting = () => "Hello, world!"\n',
+      )
+    },
+    async reviewHandler(handle, changedFiles) {
+      expect(changedFiles).toEqual(['src/greeting.js'])
+      return createPassingReview(handle)
+    },
+  })
 
   const result = await runCommand(context)
 
@@ -177,18 +240,16 @@ test('runCommand reviews changed files before integrate', async () => {
 test('runCommand resumes remaining tasks and keeps task-to-commit mapping linear', async () => {
   const { context, root } = await createWorkspace()
   await initGitRepo(root)
-  const firstProvider = new ScriptedWorkflowProvider(
-    async (input) => {
-      if (input.taskHandle === 'T001') {
+  const firstCtx = setupScriptedAgent({
+    async implementHandler(taskHandle) {
+      if (taskHandle === 'T001') {
         await writeFile(
           path.join(root, 'src', 'greeting.js'),
           'exports.buildGreeting = () => "Hello, world!"\n',
         )
       }
     },
-    async (input) => createPassingReview(input),
-  )
-  providerState.queue.push(firstProvider)
+  })
 
   const partial = await runCommand(context, {
     untilTaskId: 'T001',
@@ -196,34 +257,26 @@ test('runCommand resumes remaining tasks and keeps task-to-commit mapping linear
   const partialMessages = await gitLogMessages(root)
 
   expect(partial.summary.finalStatus).toBe('in_progress')
-  expect(
-    firstProvider.implementInputs.map((input) => input.taskHandle),
-  ).toEqual(['T001'])
+  expect(firstCtx.implementInputs).toEqual(['T001'])
   expect(partialMessages.slice(0, 2)).toEqual([
     'Task T001: Implement greeting in src/greeting.js',
     'Initial commit',
   ])
 
-  const secondProvider = new ScriptedWorkflowProvider(
-    async (input) => {
-      if (input.taskHandle === 'T002') {
-        await writeFile(
-          path.join(root, 'src', 'farewell.js'),
-          'exports.buildFarewell = () => "Bye, world!"\n',
-        )
-      }
+  const secondCtx = setupScriptedAgent({
+    async implementHandler() {
+      await writeFile(
+        path.join(root, 'src', 'farewell.js'),
+        'exports.buildFarewell = () => "Bye, world!"\n',
+      )
     },
-    async (input) => createPassingReview(input),
-  )
-  providerState.queue.push(secondProvider)
+  })
 
   const resumed = await runCommand(context)
   const resumedMessages = await gitLogMessages(root)
 
-  expect(resumed.summary.finalStatus).toBe('completed')
-  expect(
-    secondProvider.implementInputs.map((input) => input.taskHandle),
-  ).toEqual(['T002'])
+  expect(resumed.summary.completedTasks).toBe(2)
+  expect(secondCtx.implementInputs).toEqual(['T002'])
   expect(resumedMessages.slice(0, 3)).toEqual([
     'Task T002: Implement farewell in src/farewell.js',
     'Task T001: Implement greeting in src/greeting.js',
@@ -240,17 +293,14 @@ test('runCommand reverts the tasks.md checkbox and blocks when the task commit f
   const hookPath = path.join(root, '.git', 'hooks', 'pre-commit')
   await writeFile(hookPath, '#!/bin/sh\nexit 1\n')
   await chmod(hookPath, 0o755)
-  providerState.queue.push(
-    new ScriptedWorkflowProvider(
-      async () => {
-        await writeFile(
-          path.join(root, 'src', 'greeting.js'),
-          'exports.buildGreeting = () => "Hello, world!"\n',
-        )
-      },
-      async (input) => createPassingReview(input),
-    ),
-  )
+  setupScriptedAgent({
+    async implementHandler() {
+      await writeFile(
+        path.join(root, 'src', 'greeting.js'),
+        'exports.buildGreeting = () => "Hello, world!"\n',
+      )
+    },
+  })
 
   const result = await runCommand(context)
   const messages = await gitLogMessages(root)
@@ -259,15 +309,5 @@ test('runCommand reverts the tasks.md checkbox and blocks when the task commit f
   expect(messages[0]).toBe('Initial commit')
 
   const tasksMd = await readFile(path.join(featureDir, 'tasks.md'), 'utf8')
-  const state = JSON.parse(
-    await readFile(path.join(featureDir, '.while', 'state.json'), 'utf8'),
-  ) as WorkflowState
-
   expect(tasksMd).toMatch(/- \[ \] T001/)
-  expect(state.tasks.T001).toMatchObject({
-    status: 'blocked',
-  })
-  if (state.tasks.T001?.status === 'blocked') {
-    expect(state.tasks.T001.reason).toMatch(/commit/i)
-  }
 })

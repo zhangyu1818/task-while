@@ -1,39 +1,6 @@
+import type { AgentPort } from '../ports/agent'
+import type { CodeHostPort } from '../ports/code-host'
 import type { TaskSourceSession } from '../task-sources/types'
-import type {
-  FinalReport,
-  ImplementArtifact,
-  IntegrateArtifact,
-  ReviewArtifact,
-  TaskGraph,
-  WorkflowEvent,
-  WorkflowState,
-} from '../types'
-
-export interface AttemptArtifactKey {
-  attempt: number
-  generation: number
-  taskHandle: string
-}
-
-export interface WorkflowStore {
-  appendEvent: (event: WorkflowEvent) => Promise<void>
-  loadGraph: () => Promise<null | TaskGraph>
-  loadImplementArtifact: (
-    key: AttemptArtifactKey,
-  ) => Promise<ImplementArtifact | null>
-  loadReviewArtifact: (
-    key: AttemptArtifactKey,
-  ) => Promise<null | ReviewArtifact>
-  loadState: () => Promise<null | WorkflowState>
-  readReport: () => Promise<FinalReport | null>
-  reset: () => Promise<void>
-  saveGraph: (graph: TaskGraph) => Promise<void>
-  saveImplementArtifact: (artifact: ImplementArtifact) => Promise<void>
-  saveIntegrateArtifact: (artifact: IntegrateArtifact) => Promise<void>
-  saveReport: (report: FinalReport) => Promise<void>
-  saveReviewArtifact: (artifact: ReviewArtifact) => Promise<void>
-  saveState: (state: WorkflowState) => Promise<void>
-}
 
 export interface GitCheckoutBranchOptions {
   create?: boolean
@@ -167,9 +134,21 @@ export interface SquashMergePullRequestInput {
   subject: string
 }
 
+export interface AgentRoleConfig {
+  effort?: string | undefined
+  model?: string | undefined
+  provider: 'claude' | 'codex'
+}
+
 export interface OrchestratorRuntime {
   git: GitPort
   github: GitHubPort
-  store: WorkflowStore
+  taskSource: TaskSourceSession
+}
+
+export interface RuntimePorts {
+  codeHost: CodeHostPort
+  git: GitPort
+  resolveAgent: (role: AgentRoleConfig) => AgentPort
   taskSource: TaskSourceSession
 }
