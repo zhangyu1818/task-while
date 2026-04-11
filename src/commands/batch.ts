@@ -5,22 +5,20 @@ import Ajv from 'ajv'
 import * as fsExtra from 'fs-extra'
 import { z } from 'zod'
 
+import { createFsHarnessStore } from '../adapters/fs/harness-store'
 import { loadBatchConfig, type BatchConfig } from '../batch/config'
 import { discoverBatchFiles } from '../batch/discovery'
 import {
   createBatchStructuredOutputProvider,
   type BatchStructuredOutputProvider,
 } from '../batch/provider'
-import { parseWithSchema, uniqueStringArray } from '../schema/shared'
+import { runKernel } from '../harness/kernel'
+import { createBatchProgram } from '../programs/batch'
+import { createRuntimePaths } from '../runtime/path-layout'
+import { createBatchRetryScheduler } from '../schedulers/scheduler'
+import { parseWithSchema } from '../schema/shared'
+import { runSession, SessionEventType } from '../session/session'
 import { writeJsonAtomic } from '../utils/fs'
-
-const batchStateSchema = z
-  .object({
-    failed: uniqueStringArray('failed'),
-    inProgress: uniqueStringArray('inProgress'),
-    pending: uniqueStringArray('pending'),
-  })
-  .strict()
 
 const batchResultsSchema = z.custom<Record<string, unknown>>(
   (value) =>
@@ -29,12 +27,6 @@ const batchResultsSchema = z.custom<Record<string, unknown>>(
     message: 'results must be an object',
   },
 )
-
-export interface BatchState {
-  failed: string[]
-  inProgress: string[]
-  pending: string[]
-}
 
 export interface RunBatchCommandInput {
   configPath: string
@@ -47,19 +39,7 @@ export interface RunBatchCommandResult {
   failedFiles: string[]
   processedFiles: string[]
   results: Record<string, unknown>
-  state: BatchState
-}
-
-function createEmptyState(): BatchState {
-  return {
-    failed: [],
-    inProgress: [],
-    pending: [],
-  }
-}
-
-function unique(items: string[]) {
-  return [...new Set(items)]
+  resultsFilePath: string
 }
 
 async function readJsonFileIfExists(filePath: string) {
@@ -72,90 +52,12 @@ async function readJsonFileIfExists(filePath: string) {
   return value
 }
 
-async function loadBatchState(filePath: string) {
-  const value = await readJsonFileIfExists(filePath)
-  if (value === null) {
-    return createEmptyState()
-  }
-  return parseWithSchema(batchStateSchema, value)
-}
-
 async function loadBatchResults(filePath: string) {
   const value = await readJsonFileIfExists(filePath)
   if (value === null) {
     return {}
   }
   return parseWithSchema(batchResultsSchema, value)
-}
-
-function mergeBatchState(input: {
-  discoveredFiles: string[]
-  results: Record<string, unknown>
-  state: BatchState
-}): BatchState {
-  const discovered = new Set(input.discoveredFiles)
-  const completed = new Set(Object.keys(input.results))
-  const failed = unique(input.state.failed).filter(
-    (filePath) => discovered.has(filePath) && !completed.has(filePath),
-  )
-  const failedSet = new Set(failed)
-  const pending = unique([
-    ...input.state.inProgress,
-    ...input.state.pending,
-  ]).filter(
-    (filePath) =>
-      discovered.has(filePath) &&
-      !completed.has(filePath) &&
-      !failedSet.has(filePath),
-  )
-  const pendingSet = new Set(pending)
-
-  for (const filePath of input.discoveredFiles) {
-    if (
-      completed.has(filePath) ||
-      failedSet.has(filePath) ||
-      pendingSet.has(filePath)
-    ) {
-      continue
-    }
-    pending.push(filePath)
-    pendingSet.add(filePath)
-  }
-
-  return {
-    failed,
-    inProgress: [],
-    pending,
-  }
-}
-
-function removeFile(items: string[], filePath: string) {
-  return items.filter((item) => item !== filePath)
-}
-
-function writeBatchFailure(filePath: string, error: unknown) {
-  process.stderr.write(
-    `[batch] failed ${filePath}: ${
-      error instanceof Error ? error.message : String(error)
-    }\n`,
-  )
-}
-
-async function recycleFailedFiles(
-  statePath: string,
-  state: BatchState,
-): Promise<BatchState> {
-  if (state.pending.length !== 0 || state.failed.length === 0) {
-    return state
-  }
-
-  const nextState: BatchState = {
-    failed: [],
-    inProgress: [],
-    pending: [...state.failed],
-  }
-  await writeJsonAtomic(statePath, nextState)
-  return nextState
 }
 
 function createProvider(
@@ -181,6 +83,17 @@ function createProvider(
   })
 }
 
+function createOutputValidator(schema: Record<string, unknown>) {
+  const ajv = new Ajv({ strict: false })
+  const validate = ajv.compile(schema)
+  return (value: unknown) => {
+    if (validate(value)) {
+      return
+    }
+    throw new Error(ajv.errorsText(validate.errors))
+  }
+}
+
 export async function runBatchCommand(
   input: RunBatchCommandInput,
 ): Promise<RunBatchCommandResult> {
@@ -190,82 +103,68 @@ export async function runBatchCommand(
     cwd,
   })
 
-  const statePath = path.join(config.configDir, 'state.json')
   const resultsPath = path.join(config.configDir, 'results.json')
-  const excludedFiles = new Set([config.configPath, statePath, resultsPath])
+  const excludedFiles = new Set([config.configPath, resultsPath])
   const discoveredFiles = await discoverBatchFiles({
     baseDir: config.configDir,
     excludedFiles,
     patterns: config.glob,
   })
   const results = await loadBatchResults(resultsPath)
-  let state: BatchState = mergeBatchState({
-    discoveredFiles,
-    results,
-    state: await loadBatchState(statePath),
-  })
-  await writeJsonAtomic(statePath, state)
   await writeJsonAtomic(resultsPath, results)
-  const ajv = new Ajv({
-    allErrors: true,
-    strict: false,
+
+  const provider = createProvider(config, input.verbose)
+  const validateOutput = createOutputValidator(config.schema)
+  const harnessDir = createRuntimePaths(config.configDir).runtimeDir
+  const store = createFsHarnessStore(harnessDir)
+  const protocol = 'batch'
+
+  const program = createBatchProgram({
+    configDir: config.configDir,
+    maxRetries: 3,
+    outputSchema: config.schema,
+    prompt: config.prompt,
+    provider,
+    results,
+    resultsPath,
+    validateOutput,
   })
-  const validateOutput = ajv.compile(config.schema)
+
+  const scheduler = createBatchRetryScheduler({
+    files: discoveredFiles,
+    protocol,
+    results,
+    store,
+  })
+
   const processedFiles: string[] = []
-  let provider: BatchStructuredOutputProvider | null = null
 
-  while (state.pending.length !== 0 || state.failed.length !== 0) {
-    if (state.pending.length === 0) {
-      state = await recycleFailedFiles(statePath, state)
-      continue
-    }
-    const filePath = state.pending[0]!
-    state = {
-      ...state,
-      inProgress: unique([...state.inProgress, filePath]),
-      pending: state.pending.slice(1),
-    }
-    await writeJsonAtomic(statePath, state)
-
-    try {
-      provider ??= createProvider(config, input.verbose)
-      const absoluteFilePath = path.join(config.configDir, filePath)
-      const content = await readFile(absoluteFilePath, 'utf8')
-      const output = await provider.runFile({
-        content,
-        filePath,
-        outputSchema: config.schema,
-        prompt: config.prompt,
-      })
-      if (!validateOutput(output)) {
-        throw new Error(ajv.errorsText(validateOutput.errors))
-      }
-      results[filePath] = output
-      await writeJsonAtomic(resultsPath, results)
-      state = {
-        ...state,
-        inProgress: removeFile(state.inProgress, filePath),
-      }
-      await writeJsonAtomic(statePath, state)
-      processedFiles.push(filePath)
-    } catch (error) {
-      if (input.verbose) {
-        writeBatchFailure(filePath, error)
-      }
-      state = {
-        failed: unique([...state.failed, filePath]),
-        inProgress: removeFile(state.inProgress, filePath),
-        pending: state.pending,
-      }
-      await writeJsonAtomic(statePath, state)
+  for await (const event of runSession({
+    config: {},
+    scheduler,
+    kernel: {
+      run: (subjectId) =>
+        runKernel({
+          config: { prompt: config.prompt, schema: config.schema },
+          program,
+          protocol,
+          store,
+          subjectId,
+        }),
+    },
+  })) {
+    if (event.type === SessionEventType.SubjectDone) {
+      processedFiles.push(event.subjectId)
     }
   }
 
+  const sets = await scheduler.rebuild()
+
   return {
     config,
-    failedFiles: state.failed,
+    failedFiles: [...sets.blocked],
     processedFiles,
     results,
-    state,
+    resultsFilePath: resultsPath,
   }
 }

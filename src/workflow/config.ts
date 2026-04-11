@@ -58,9 +58,16 @@ const taskConfigSchema = z
   })
   .strict()
 
+const verifyConfigSchema = z
+  .object({
+    commands: z.array(z.string().trim().min(1)).default([]),
+  })
+  .strict()
+
 const workflowConfigSchema = z
   .object({
     task: taskConfigSchema.default({}),
+    verify: verifyConfigSchema.default({}),
     workflow: z
       .object({
         mode: workflowModeSchema.default('direct'),
@@ -92,8 +99,13 @@ export interface TaskSettingsConfig {
   source: string
 }
 
+export interface VerifyConfig {
+  commands: string[]
+}
+
 export interface WorkflowConfig {
   task: TaskSettingsConfig
+  verify: VerifyConfig
   workflow: WorkflowSettingsConfig
 }
 
@@ -118,6 +130,9 @@ export async function loadWorkflowConfig(
     task: {
       maxIterations: parsedConfig.task.maxIterations,
       source: parsedConfig.task.source,
+    },
+    verify: {
+      commands: parsedConfig.verify.commands,
     },
     workflow: {
       mode: parsedConfig.workflow.mode,

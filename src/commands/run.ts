@@ -1,33 +1,16 @@
-import { createClaudeProvider } from '../agents/claude'
-import { createCodexProvider } from '../agents/codex'
-import {
-  createClaudeEventHandler,
-  createCodexEventHandler,
-} from '../agents/event-log'
+import { createFsHarnessStore } from '../adapters/fs/harness-store'
 import { providerOptionsEqual } from '../agents/provider-options'
-import { runWorkflow, type WorkflowRunResult } from '../core/orchestrator'
+import { createRuntimePorts } from '../core/create-runtime-ports'
 import { buildTaskTopology } from '../core/task-topology'
-import { createOrchestratorRuntime } from '../runtime/fs-runtime'
+import { runKernel } from '../harness/kernel'
+import { createRunDirectProgram } from '../programs/run-direct'
+import { createRunPrProgram } from '../programs/run-pr'
+import { createRuntimePaths } from '../runtime/path-layout'
+import { createRunGraphScheduler } from '../schedulers/scheduler'
+import { runSession } from '../session/session'
 import { openTaskSource } from '../task-sources/registry'
-import {
-  loadWorkflowConfig,
-  type WorkflowConfig,
-  type WorkflowProvider,
-  type WorkflowRoleConfig,
-} from '../workflow/config'
-import {
-  createDirectWorkflowPreset,
-  createPullRequestWorkflowPreset,
-  type WorkflowRuntime,
-} from '../workflow/preset'
-import { createCodexRemoteReviewerProvider } from '../workflow/remote-reviewer'
+import { loadWorkflowConfig, type WorkflowConfig } from '../workflow/config'
 
-import type {
-  ImplementerProvider,
-  RemoteReviewerProvider,
-  ReviewerProvider,
-  WorkflowRoleProviders,
-} from '../agents/types'
 import type { WorkspaceContext } from '../types'
 
 export interface RunCommandOptions {
@@ -36,110 +19,56 @@ export interface RunCommandOptions {
   verbose?: boolean
 }
 
-export type WorkflowExecutionRunner = () => Promise<WorkflowRunResult>
-
-export interface WorkflowExecution {
-  config: WorkflowConfig
-  execute: WorkflowExecutionRunner
-  workflow: WorkflowRuntime
+export interface RunCommandResult {
+  summary: {
+    blockedTasks: number
+    completedTasks: number
+    finalStatus: 'blocked' | 'completed' | 'in_progress' | 'replan_required'
+    replanTasks: number
+    totalTasks: number
+  }
 }
 
-export interface ResolveWorkflowRuntimeInput {
-  config: WorkflowConfig
-  context: WorkspaceContext
-  options: RunCommandOptions
-}
-
-export type ProviderResolver = (
-  role: WorkflowRoleConfig,
-) => ImplementerProvider & ReviewerProvider
-
-export type RemoteReviewerResolver = (
-  providerName: WorkflowProvider,
-) => RemoteReviewerProvider
-
-function createProviderResolver(
+export async function runCommand(
   context: WorkspaceContext,
-  verbose: boolean | undefined,
-): ProviderResolver {
-  const cache = new Map<
-    WorkflowProvider,
-    ImplementerProvider & ReviewerProvider
-  >()
-  return (role: WorkflowRoleConfig) => {
-    const cached = cache.get(role.provider)
-    if (cached) {
-      return cached
-    }
-    let provider: ImplementerProvider & ReviewerProvider
-    if (role.provider === 'claude') {
-      const onEvent = createClaudeEventHandler(verbose)
-      provider = createClaudeProvider({
-        ...(role.effort ? { effort: role.effort } : {}),
-        ...(role.model ? { model: role.model } : {}),
-        workspaceRoot: context.workspaceRoot,
-        ...(onEvent ? { onEvent } : {}),
-      })
-    } else {
-      const onEvent = createCodexEventHandler(verbose)
-      provider = createCodexProvider({
-        ...(role.effort ? { effort: role.effort } : {}),
-        ...(role.model ? { model: role.model } : {}),
-        workspaceRoot: context.workspaceRoot,
-        ...(onEvent ? { onEvent } : {}),
-      })
-    }
-    cache.set(role.provider, provider)
-    return provider
-  }
-}
+  options: RunCommandOptions = {},
+): Promise<RunCommandResult> {
+  const config =
+    options.config ?? (await loadWorkflowConfig(context.workspaceRoot))
 
-function createRemoteReviewerResolver(): RemoteReviewerResolver {
-  const cache = new Map<WorkflowProvider, RemoteReviewerProvider>()
-  return (providerName: WorkflowProvider) => {
-    const cached = cache.get(providerName)
-    if (cached) {
-      return cached
-    }
-    if (providerName === 'claude') {
-      throw new Error(
-        'claude remote reviewer is not implemented in pull-request mode',
-      )
-    }
-    const provider = createCodexRemoteReviewerProvider()
-    cache.set(providerName, provider)
-    return provider
-  }
-}
+  const taskSource = await openTaskSource(config.task.source, {
+    featureDir: context.featureDir,
+    featureId: context.featureId,
+    workspaceRoot: context.workspaceRoot,
+  })
 
-function resolveWorkflowRuntime(
-  input: ResolveWorkflowRuntimeInput,
-): WorkflowRuntime {
-  const resolveProvider = createProviderResolver(
-    input.context,
-    input.options.verbose,
+  const ports = createRuntimePorts({
+    config,
+    context,
+    taskSource,
+    verbose: options.verbose,
+  })
+
+  await ports.git.requireCleanWorktree()
+
+  const topology = buildTaskTopology(
+    taskSource,
+    context.featureId,
+    config.task.maxIterations,
   )
-  const implementerRole = input.config.workflow.roles.implementer
-  const reviewerRole = input.config.workflow.roles.reviewer
 
-  if (input.config.workflow.mode === 'pull-request') {
-    const resolveRemoteReviewer = createRemoteReviewerResolver()
-    const reviewer = resolveRemoteReviewer(reviewerRole.provider)
-    const implementer = resolveProvider(implementerRole)
-    const roles: WorkflowRoleProviders = {
-      implementer,
-      reviewer,
-    }
+  const isPullRequest = config.workflow.mode === 'pull-request'
+  const implementerRole = config.workflow.roles.implementer
+  const reviewerRole = config.workflow.roles.reviewer
 
-    return {
-      roles,
-      preset: createPullRequestWorkflowPreset({
-        reviewer,
-      }),
-    }
+  if (isPullRequest && reviewerRole.provider === 'claude') {
+    throw new Error(
+      'claude remote reviewer is not implemented in pull-request mode',
+    )
   }
 
   if (
+    !isPullRequest &&
     implementerRole.provider === reviewerRole.provider &&
     !providerOptionsEqual(implementerRole, reviewerRole)
   ) {
@@ -148,71 +77,86 @@ function resolveWorkflowRuntime(
     )
   }
 
-  const implementer = resolveProvider(implementerRole)
-  const reviewer = resolveProvider(reviewerRole)
-  const roles: WorkflowRoleProviders = {
-    implementer,
-    reviewer,
-  }
-
-  return {
-    roles,
-    preset: createDirectWorkflowPreset({
-      reviewer,
-    }),
-  }
-}
-
-export async function loadWorkflowExecution(
-  context: WorkspaceContext,
-  options: RunCommandOptions = {},
-): Promise<WorkflowExecution> {
-  const config =
-    options.config ?? (await loadWorkflowConfig(context.workspaceRoot))
-  const workflow = resolveWorkflowRuntime({
-    config,
-    context,
-    options,
-  })
-  const taskSource = await openTaskSource(config.task.source, {
-    featureDir: context.featureDir,
-    featureId: context.featureId,
-    workspaceRoot: context.workspaceRoot,
-  })
-  const runtime = createOrchestratorRuntime({
-    featureDir: context.featureDir,
-    taskSource,
-    workspaceRoot: context.workspaceRoot,
-  })
-  await runtime.git.requireCleanWorktree()
-  const graph = buildTaskTopology(
-    taskSource,
-    context.featureId,
-    config.task.maxIterations,
+  const protocol = isPullRequest ? 'run-pr' : 'run-direct'
+  const store = createFsHarnessStore(
+    createRuntimePaths(context.featureDir).runtimeDir,
   )
+
+  const implementer = ports.resolveAgent(implementerRole)
+  const reviewer = ports.resolveAgent(reviewerRole)
+
+  const program =
+    protocol === 'run-pr'
+      ? createRunPrProgram({
+          implementer,
+          maxIterations: config.task.maxIterations,
+          ports,
+          reviewer,
+          verifyCommands: config.verify.commands,
+          workspaceRoot: context.workspaceRoot,
+        })
+      : createRunDirectProgram({
+          implementer,
+          maxIterations: config.task.maxIterations,
+          ports,
+          reviewer,
+          verifyCommands: config.verify.commands,
+          workspaceRoot: context.workspaceRoot,
+        })
+
   const untilTaskHandle = options.untilTaskId
     ? taskSource.resolveTaskSelector(options.untilTaskId)
     : undefined
-  const workflowInput = {
-    graph,
-    runtime,
-    workflow,
+
+  const scheduler = createRunGraphScheduler({
+    protocol,
+    store,
+    graph: topology.tasks.map((t) => ({
+      dependsOn: t.dependsOn,
+      subjectId: t.handle,
+    })),
     ...(untilTaskHandle ? { untilTaskHandle } : {}),
+  })
+
+  for await (const event of runSession({
+    config: {},
+    scheduler,
+    kernel: {
+      run: (subjectId) =>
+        runKernel({
+          config: { verify: config.verify, workflow: config.workflow },
+          program,
+          protocol,
+          store,
+          subjectId,
+        }),
+    },
+  })) {
+    void event
   }
+
+  const sets = await scheduler.rebuild()
+  const totalTasks = topology.tasks.length
+  const completedTasks = sets.done.size
+  const blockedTasks = sets.blocked.size
+  const replanTasks = sets.replan.size
+
+  const finalStatus =
+    replanTasks > 0
+      ? ('replan_required' as const)
+      : blockedTasks > 0
+        ? ('blocked' as const)
+        : completedTasks === totalTasks
+          ? ('completed' as const)
+          : ('in_progress' as const)
 
   return {
-    config,
-    workflow,
-    async execute() {
-      return runWorkflow(workflowInput)
+    summary: {
+      blockedTasks,
+      completedTasks,
+      finalStatus,
+      replanTasks,
+      totalTasks,
     },
   }
-}
-
-export async function runCommand(
-  context: WorkspaceContext,
-  options: RunCommandOptions = {},
-) {
-  const execution = await loadWorkflowExecution(context, options)
-  return execution.execute()
 }

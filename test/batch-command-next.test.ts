@@ -30,7 +30,7 @@ const { runBatchCommand } = await import('../src/commands/batch')
 const workspaces: string[] = []
 
 async function createWorkspace() {
-  const root = await mkdtemp(path.join(tmpdir(), 'while-batch-command-'))
+  const root = await mkdtemp(path.join(tmpdir(), 'while-batch-next-'))
   workspaces.push(root)
   return root
 }
@@ -69,13 +69,6 @@ async function readBatchResults<T>(root: string) {
   ) as Record<string, T>
 }
 
-async function writeBatchResults<T>(root: string, results: Record<string, T>) {
-  await writeFile(
-    path.join(root, 'results.json'),
-    JSON.stringify(results, null, 2),
-  )
-}
-
 afterEach(async () => {
   await Promise.all(
     workspaces.splice(0).map(async (workspaceRoot) => {
@@ -89,7 +82,7 @@ beforeEach(() => {
   providerState.provider = null
 })
 
-test('runBatchCommand writes results for discovered files', async () => {
+test('processes discovered files and writes results', async () => {
   const root = await createWorkspace()
   const inputDir = path.join(root, 'input')
   await mkdir(inputDir, { recursive: true })
@@ -101,145 +94,60 @@ test('runBatchCommand writes results for discovered files', async () => {
     name: 'codex',
     async runFile(input) {
       providerState.inputs.push(input)
-      return {
-        summary: path.basename(input.filePath),
-      }
+      return { summary: path.basename(input.filePath) }
     },
   }
 
-  await runBatchCommand({
-    configPath,
-    cwd: root,
-  })
+  const result = await runBatchCommand({ configPath, cwd: root })
 
-  expect(providerState.inputs.map((input) => input.filePath).sort()).toEqual([
+  expect(providerState.inputs.map((i) => i.filePath).sort()).toEqual([
     'input/a.txt',
     'input/b.txt',
   ])
+  expect(result.processedFiles.sort()).toEqual(['input/a.txt', 'input/b.txt'])
+  expect(result.failedFiles).toEqual([])
+  expect(result.resultsFilePath).toBe(path.join(root, 'results.json'))
 
   const results = await readBatchResults<{ summary: string }>(root)
-
   expect(results).toEqual({
     'input/a.txt': { summary: 'a.txt' },
     'input/b.txt': { summary: 'b.txt' },
   })
 })
 
-test('runBatchCommand skips completed results on rerun', async () => {
+test('skips files already present in results.json', async () => {
   const root = await createWorkspace()
   const inputDir = path.join(root, 'input')
   await mkdir(inputDir, { recursive: true })
   await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
   await writeFile(path.join(inputDir, 'b.txt'), 'beta\n')
-  await writeFile(path.join(inputDir, 'c.txt'), 'gamma\n')
   const configPath = await writeConfig(root)
-  await writeBatchResults(root, {
-    'input/a.txt': {
-      summary: 'done',
-    },
-  })
+  await writeFile(
+    path.join(root, 'results.json'),
+    JSON.stringify({ 'input/a.txt': { summary: 'done' } }),
+  )
 
   providerState.provider = {
     name: 'codex',
     async runFile(input) {
       providerState.inputs.push(input)
-      return {
-        summary: input.filePath,
-      }
+      return { summary: input.filePath }
     },
   }
 
-  await runBatchCommand({
-    configPath,
-    cwd: root,
-  })
+  const result = await runBatchCommand({ configPath, cwd: root })
 
-  expect(providerState.inputs.map((input) => input.filePath).sort()).toEqual([
-    'input/b.txt',
-    'input/c.txt',
-  ])
+  expect(providerState.inputs.map((i) => i.filePath)).toEqual(['input/b.txt'])
+  expect(result.processedFiles).toEqual(['input/b.txt'])
 
   const results = await readBatchResults<{ summary: string }>(root)
-
   expect(results).toEqual({
     'input/a.txt': { summary: 'done' },
     'input/b.txt': { summary: 'input/b.txt' },
-    'input/c.txt': { summary: 'input/c.txt' },
   })
 })
 
-test('runBatchCommand retries files that fail validation until they succeed', async () => {
-  const root = await createWorkspace()
-  const inputDir = path.join(root, 'input')
-  await mkdir(inputDir, { recursive: true })
-  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
-  await writeFile(path.join(inputDir, 'b.txt'), 'beta\n')
-  const configPath = await writeConfig(root)
-  let attemptCount = 0
-
-  providerState.provider = {
-    name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
-      if (input.filePath === 'input/a.txt' && attemptCount === 0) {
-        attemptCount += 1
-        throw new Error('transient failure')
-      }
-      return {
-        summary: input.filePath,
-      }
-    },
-  }
-
-  const result = await runBatchCommand({
-    configPath,
-    cwd: root,
-  })
-
-  expect(result.failedFiles).toEqual([])
-  expect(result.processedFiles.sort()).toEqual(['input/a.txt', 'input/b.txt'])
-
-  const results = await readBatchResults<unknown>(root)
-  expect(results).toEqual({
-    'input/a.txt': { summary: 'input/a.txt' },
-    'input/b.txt': { summary: 'input/b.txt' },
-  })
-})
-
-test('runBatchCommand resolves glob and result keys relative to the batch.yaml directory', async () => {
-  const root = await createWorkspace()
-  const configDir = path.join(root, 'config')
-  const inputDir = path.join(root, 'input')
-  await mkdir(inputDir, { recursive: true })
-  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
-  const configPath = await writeConfig(root, ['../input/*.txt'], configDir)
-
-  providerState.provider = {
-    name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
-      return {
-        summary: input.filePath,
-      }
-    },
-  }
-
-  const result = await runBatchCommand({
-    configPath,
-    cwd: root,
-  })
-
-  expect(providerState.inputs.map((input) => input.filePath)).toEqual([
-    '../input/a.txt',
-  ])
-  expect(result.results).toEqual({
-    '../input/a.txt': {
-      summary: '../input/a.txt',
-    },
-  })
-})
-
-test('runBatchCommand completes cleanly when glob matches nothing', async () => {
+test('completes cleanly when glob matches nothing', async () => {
   const root = await createWorkspace()
   const configPath = await writeConfig(root, ['missing/**/*.txt'])
 
@@ -251,12 +159,108 @@ test('runBatchCommand completes cleanly when glob matches nothing', async () => 
     },
   }
 
-  const result = await runBatchCommand({
-    configPath,
-    cwd: root,
-  })
+  const result = await runBatchCommand({ configPath, cwd: root })
 
   expect(result.processedFiles).toEqual([])
-  expect(result.results).toEqual({})
   expect(result.failedFiles).toEqual([])
+  expect(result.results).toEqual({})
+})
+
+test('resolves glob and result keys relative to batch.yaml directory', async () => {
+  const root = await createWorkspace()
+  const configDir = path.join(root, 'config')
+  const inputDir = path.join(root, 'input')
+  await mkdir(inputDir, { recursive: true })
+  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
+  const configPath = await writeConfig(root, ['../input/*.txt'], configDir)
+
+  providerState.provider = {
+    name: 'codex',
+    async runFile(input) {
+      providerState.inputs.push(input)
+      return { summary: input.filePath }
+    },
+  }
+
+  const result = await runBatchCommand({ configPath, cwd: root })
+
+  expect(providerState.inputs.map((i) => i.filePath)).toEqual([
+    '../input/a.txt',
+  ])
+  expect(result.results).toEqual({
+    '../input/a.txt': { summary: '../input/a.txt' },
+  })
+})
+
+test('includes previously blocked files in failedFiles on rerun', async () => {
+  const root = await createWorkspace()
+  const inputDir = path.join(root, 'input')
+  await mkdir(inputDir, { recursive: true })
+  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
+  await writeFile(path.join(inputDir, 'b.txt'), 'beta\n')
+  const configPath = await writeConfig(root)
+
+  let callCount = 0
+  providerState.provider = {
+    name: 'codex',
+    async runFile(input) {
+      callCount++
+      if (input.filePath === 'input/a.txt') {
+        throw new Error('permanent failure')
+      }
+      return { summary: input.filePath }
+    },
+  }
+
+  const first = await runBatchCommand({ configPath, cwd: root })
+  expect(first.failedFiles).toContain('input/a.txt')
+  expect(first.processedFiles).toContain('input/b.txt')
+
+  callCount = 0
+  const second = await runBatchCommand({ configPath, cwd: root })
+  expect(second.failedFiles).toContain('input/a.txt')
+  expect(callCount).toBe(0)
+})
+
+test('blocks files that permanently fail after retries', async () => {
+  const root = await createWorkspace()
+  const inputDir = path.join(root, 'input')
+  await mkdir(inputDir, { recursive: true })
+  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
+  const configPath = await writeConfig(root)
+
+  providerState.provider = {
+    name: 'codex',
+    async runFile() {
+      throw new Error('provider error')
+    },
+  }
+
+  const result = await runBatchCommand({ configPath, cwd: root })
+
+  expect(result.processedFiles).toEqual([])
+  expect(result.failedFiles).toEqual(['input/a.txt'])
+})
+
+test('retries and blocks files when local schema validation fails', async () => {
+  const root = await createWorkspace()
+  const inputDir = path.join(root, 'input')
+  await mkdir(inputDir, { recursive: true })
+  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
+  const configPath = await writeConfig(root)
+
+  providerState.provider = {
+    name: 'codex',
+    async runFile(input) {
+      providerState.inputs.push(input)
+      return { wrong: input.filePath }
+    },
+  }
+
+  const result = await runBatchCommand({ configPath, cwd: root })
+
+  expect(providerState.inputs).toHaveLength(3)
+  expect(result.processedFiles).toEqual([])
+  expect(result.failedFiles).toEqual(['input/a.txt'])
+  expect(await readBatchResults(root)).toEqual({})
 })

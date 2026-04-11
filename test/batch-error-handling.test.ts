@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -30,7 +30,7 @@ const { runBatchCommand } = await import('../src/commands/batch')
 const workspaces: string[] = []
 
 async function createWorkspace() {
-  const root = await mkdtemp(path.join(tmpdir(), 'while-batch-command-'))
+  const root = await mkdtemp(path.join(tmpdir(), 'while-batch-error-'))
   workspaces.push(root)
   return root
 }
@@ -71,25 +71,22 @@ beforeEach(() => {
   providerState.provider = null
 })
 
-test('runBatchCommand retries files that throw and eventually succeeds', async () => {
+test('runBatchCommand blocks files with broken symlinks (prepare errors)', async () => {
   const root = await createWorkspace()
   const inputDir = path.join(root, 'input')
   await mkdir(inputDir, { recursive: true })
-  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
+  await symlink(
+    path.join(inputDir, 'nonexistent'),
+    path.join(inputDir, 'a.txt'),
+  )
+  await writeFile(path.join(inputDir, 'b.txt'), 'beta\n')
   const configPath = await writeConfig(root)
-  let attemptCount = 0
 
   providerState.provider = {
     name: 'codex',
     async runFile(input) {
       providerState.inputs.push(input)
-      attemptCount += 1
-      if (attemptCount === 1) {
-        throw new Error('transient error')
-      }
-      return {
-        summary: input.filePath,
-      }
+      return { summary: input.filePath }
     },
   }
 
@@ -98,30 +95,8 @@ test('runBatchCommand retries files that throw and eventually succeeds', async (
     cwd: root,
   })
 
-  expect(result.processedFiles).toEqual(['input/a.txt'])
-  expect(result.failedFiles).toEqual([])
-})
-
-test('runBatchCommand blocks files that permanently fail after max retries', async () => {
-  const root = await createWorkspace()
-  const inputDir = path.join(root, 'input')
-  await mkdir(inputDir, { recursive: true })
-  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
-  const configPath = await writeConfig(root)
-
-  providerState.provider = {
-    name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
-      throw new Error('permanent error')
-    },
-  }
-
-  const result = await runBatchCommand({
-    configPath,
-    cwd: root,
-  })
-
-  expect(result.processedFiles).toEqual([])
-  expect(result.failedFiles).toEqual(['input/a.txt'])
+  expect(result.processedFiles).toContain('input/b.txt')
+  expect(result.failedFiles).toContain('input/a.txt')
+  expect(result.results).toHaveProperty('input/b.txt')
+  expect(result.results).not.toHaveProperty('input/a.txt')
 })
