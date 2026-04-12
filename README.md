@@ -40,7 +40,7 @@ pnpm exec task-while run
 
 ## Configuration
 
-`while.yaml` configures the `run` workflow only. When it is absent, the CLI runs `task.source: spec-kit`, `task.maxIterations: 5`, and `workflow.mode: direct` with `codex` for both roles. Each workflow role accepts provider-specific `model` and `effort`.
+`while.yaml` configures the `run` workflow only. When it is absent, the CLI runs `task.source: spec-kit`, `task.maxIterations: 5`, and `workflow.mode: direct` with `codex` for both roles. Each workflow role accepts provider-specific `model`, `effort`, and optional `timeout` in milliseconds.
 
 ```yaml
 task:
@@ -53,20 +53,23 @@ workflow:
     implementer:
       model: gpt-5-codex
       effort: high
+      timeout: 900000
     reviewer:
       model: gpt-5-codex
       effort: high
+      timeout: 900000
 ```
 
 Current status:
 
 - `workflow.roles.<role>.provider` accepts `codex` or `claude`; when omitted it defaults to `codex`, including roles that only set `model` and/or `effort`
+- `workflow.roles.<role>.timeout` is optional and sets a per-turn timeout in milliseconds for local agent runs; valid values are positive integers up to `2147483647`
 - `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
 - `claude` `effort` accepts `low`, `medium`, `high`, or `max`
 - `workflow.mode: direct` requires `implementer` and `reviewer` to use identical `model` and `effort` when they share the same provider
 - `workflow.mode: direct` uses a local reviewer
 - `workflow.mode: pull-request` pushes a task branch, polls GitHub PR review from `chatgpt-codex-connector[bot]`, then squash-merges on approval
-- in `workflow.mode: pull-request`, reviewer `provider` still selects the remote reviewer, but any local reviewer `model` and `effort` values are ignored
+- in `workflow.mode: pull-request`, reviewer `provider` still selects the remote reviewer, but any local reviewer `model`, `effort`, and `timeout` values are ignored
 - `workflow.mode: pull-request` currently supports only `codex` as the remote reviewer provider
 - `task.maxIterations` uses the same configured limit for every task in the selected source session; run workflow retries share a single per-task budget across phases
 
@@ -135,6 +138,7 @@ Batch config example:
 provider: claude
 model: claude-sonnet-4-6
 effort: max
+timeout: 300000
 glob:
   - 'src/**/*.{ts,tsx}'
 prompt: |
@@ -157,10 +161,11 @@ Batch behavior:
 - `glob` is optional and defaults to `**/*`
 - `glob` is resolved relative to the directory that contains `batch.yaml`
 - `provider`, `prompt`, and `schema` are required
-- `model` and `effort` are optional and are forwarded to the selected provider client
+- `model`, `effort`, and `timeout` are optional and are forwarded to the selected provider client
 - batch `provider` accepts `codex` or `claude`
 - batch `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
 - batch `claude` `effort` accepts `low`, `medium`, `high`, or `max`
+- batch `timeout` is an optional per-file timeout in milliseconds; valid values are positive integers up to `2147483647`
 - each run scans files under the `batch.yaml` directory and filters them by `glob`
 - structured results are written beside the YAML file in `results.json`
 - internal harness state is written under `.while/harness/` beside the YAML file

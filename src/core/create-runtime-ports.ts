@@ -10,6 +10,7 @@ import {
   createClaudeEventHandler,
   createCodexEventHandler,
 } from '../agents/event-log'
+import { providerOptionsCacheKey } from '../agents/provider-options'
 import { GitRuntime } from '../runtime/git'
 import { GitHubRuntime } from '../runtime/github'
 import { createRuntimePaths } from '../runtime/path-layout'
@@ -54,7 +55,7 @@ export function createRuntimePorts(
   const agentCache = new Map<string, AgentPort>()
 
   function resolveAgent(role: AgentRoleConfig): AgentPort {
-    const key = `${role.provider}:${role.model ?? ''}:${role.effort ?? ''}`
+    const key = providerOptionsCacheKey(role)
     const cached = agentCache.get(key)
     if (cached) {
       return cached
@@ -72,6 +73,7 @@ export function createRuntimePorts(
             }
           : {}),
         ...(role.model ? { model: role.model } : {}),
+        ...(role.timeout ? { timeout: role.timeout } : {}),
         workspaceRoot: context.workspaceRoot,
         ...(onEvent ? { onEvent } : {}),
       })
@@ -86,6 +88,7 @@ export function createRuntimePorts(
             }
           : {}),
         ...(role.model ? { model: role.model } : {}),
+        ...(role.timeout ? { timeout: role.timeout } : {}),
         workspaceRoot: context.workspaceRoot,
         ...(onEvent ? { onEvent } : {}),
       })

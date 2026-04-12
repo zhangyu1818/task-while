@@ -138,6 +138,7 @@ export interface AgentRoleConfig {
   effort?: string | undefined
   model?: string | undefined
   provider: 'claude' | 'codex'
+  timeout?: number | undefined
 }
 
 export interface OrchestratorRuntime {

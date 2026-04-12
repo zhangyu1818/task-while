@@ -153,6 +153,54 @@ test('loadWorkflowConfig parses model and effort for codex and claude roles', as
   })
 })
 
+test('loadWorkflowConfig parses optional timeout values for workflow roles', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    [
+      'workflow:',
+      '  roles:',
+      '    implementer:',
+      '      provider: codex',
+      '      timeout: 900000',
+      '    reviewer:',
+      '      provider: claude',
+      '      timeout: 300000',
+      '',
+    ].join('\n'),
+  )
+
+  const config = await loadWorkflowConfig(workspaceRoot)
+
+  expect(config.workflow.roles).toEqual({
+    implementer: {
+      provider: 'codex',
+      timeout: 900000,
+    },
+    reviewer: {
+      provider: 'claude',
+      timeout: 300000,
+    },
+  })
+})
+
+test('loadWorkflowConfig rejects timeout values above the node timer limit', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    [
+      'workflow:',
+      '  roles:',
+      '    implementer:',
+      '      provider: codex',
+      '      timeout: 2147483648',
+      '',
+    ].join('\n'),
+  )
+
+  await expect(loadWorkflowConfig(workspaceRoot)).rejects.toThrow(/timeout/i)
+})
+
 test('loadWorkflowConfig defaults provider to codex when a role only configures model or effort', async () => {
   const workspaceRoot = await createWorkspace()
   await writeFile(

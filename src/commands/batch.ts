@@ -101,6 +101,7 @@ function createProvider(
       provider: 'codex',
       ...(config.effort ? { effort: config.effort } : {}),
       ...(config.model ? { model: config.model } : {}),
+      ...(config.timeout ? { timeout: config.timeout } : {}),
       ...(verbose === undefined ? {} : { verbose }),
       workspaceRoot: config.configDir,
     })
@@ -110,6 +111,7 @@ function createProvider(
     provider: 'claude',
     ...(config.effort ? { effort: config.effort } : {}),
     ...(config.model ? { model: config.model } : {}),
+    ...(config.timeout ? { timeout: config.timeout } : {}),
     ...(verbose === undefined ? {} : { verbose }),
     workspaceRoot: config.configDir,
   })

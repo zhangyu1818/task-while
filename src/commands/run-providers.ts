@@ -4,6 +4,7 @@ import {
   createClaudeEventHandler,
   createCodexEventHandler,
 } from '../agents/event-log'
+import { providerOptionsCacheKey } from '../agents/provider-options'
 import { createCodexRemoteReviewerProvider } from '../workflow/remote-reviewer'
 
 import type {
@@ -26,12 +27,10 @@ export function createProviderResolver(
   context: WorkspaceContext,
   verbose: boolean | undefined,
 ): ProviderResolver {
-  const cache = new Map<
-    WorkflowProvider,
-    ImplementerProvider & ReviewerProvider
-  >()
+  const cache = new Map<string, ImplementerProvider & ReviewerProvider>()
   return (role: WorkflowRoleConfig) => {
-    const cached = cache.get(role.provider)
+    const cacheKey = providerOptionsCacheKey(role)
+    const cached = cache.get(cacheKey)
     if (cached) {
       return cached
     }
@@ -41,6 +40,7 @@ export function createProviderResolver(
       provider = createClaudeProvider({
         ...(role.effort ? { effort: role.effort } : {}),
         ...(role.model ? { model: role.model } : {}),
+        ...(role.timeout ? { timeout: role.timeout } : {}),
         workspaceRoot: context.workspaceRoot,
         ...(onEvent ? { onEvent } : {}),
       })
@@ -49,11 +49,12 @@ export function createProviderResolver(
       provider = createCodexProvider({
         ...(role.effort ? { effort: role.effort } : {}),
         ...(role.model ? { model: role.model } : {}),
+        ...(role.timeout ? { timeout: role.timeout } : {}),
         workspaceRoot: context.workspaceRoot,
         ...(onEvent ? { onEvent } : {}),
       })
     }
-    cache.set(role.provider, provider)
+    cache.set(cacheKey, provider)
     return provider
   }
 }

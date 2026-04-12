@@ -164,6 +164,7 @@ test('CodexAgentClient creates a fresh thread for each role invocation', async (
 test('CodexAgentClient can invoke standalone structured prompts', async () => {
   let receivedPrompt = ''
   let receivedSchema: Record<string, unknown> | undefined
+  let receivedSignal: AbortSignal | undefined
 
   mockState.client = {
     startThread() {
@@ -171,6 +172,7 @@ test('CodexAgentClient can invoke standalone structured prompts', async () => {
         async run(prompt, runOptions) {
           receivedPrompt = prompt
           receivedSchema = runOptions.outputSchema
+          receivedSignal = runOptions.signal
           return {
             finalResponse: JSON.stringify({
               summary: 'ok',
@@ -182,6 +184,7 @@ test('CodexAgentClient can invoke standalone structured prompts', async () => {
   }
 
   const client = new CodexAgentClient({
+    timeout: 600000,
     workspaceRoot: '/tmp/project',
   })
 
@@ -203,6 +206,7 @@ test('CodexAgentClient can invoke standalone structured prompts', async () => {
     required: ['summary'],
     type: 'object',
   })
+  expect(receivedSignal).toBeInstanceOf(AbortSignal)
   expect(result).toEqual({
     summary: 'ok',
   })
