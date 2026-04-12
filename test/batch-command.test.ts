@@ -87,6 +87,7 @@ afterEach(async () => {
 beforeEach(() => {
   providerState.inputs = []
   providerState.provider = null
+  vi.restoreAllMocks()
 })
 
 test('runBatchCommand writes results for discovered files', async () => {
@@ -259,4 +260,43 @@ test('runBatchCommand completes cleanly when glob matches nothing', async () => 
   expect(result.processedFiles).toEqual([])
   expect(result.results).toEqual({})
   expect(result.failedFiles).toEqual([])
+})
+
+test('runBatchCommand --verbose prints outer batch progress', async () => {
+  const root = await createWorkspace()
+  const inputDir = path.join(root, 'input')
+  await mkdir(inputDir, { recursive: true })
+  await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
+  await writeFile(path.join(inputDir, 'b.txt'), 'beta\n')
+  const configPath = await writeConfig(root)
+
+  providerState.provider = {
+    name: 'codex',
+    async runFile(input) {
+      providerState.inputs.push(input)
+      return {
+        summary: input.filePath,
+      }
+    },
+  }
+
+  const stderrWrite = vi
+    .spyOn(process.stderr, 'write')
+    .mockImplementation(() => true)
+
+  await runBatchCommand({
+    configPath,
+    cwd: root,
+    verbose: true,
+  })
+
+  const output = stderrWrite.mock.calls.map(([chunk]) => String(chunk)).join('')
+
+  expect(output).toContain(
+    '[batch] resume total=2 completed=0 blocked=0 suspended=0\n',
+  )
+  expect(output).toContain('[batch] start completed=0/2 file=input/a.txt\n')
+  expect(output).toContain('[batch] done completed=1/2 file=input/a.txt\n')
+  expect(output).toContain('[batch] start completed=1/2 file=input/b.txt\n')
+  expect(output).toContain('[batch] done completed=2/2 file=input/b.txt\n')
 })
