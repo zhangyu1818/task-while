@@ -135,6 +135,30 @@ test('loadBatchConfig parses an optional provider timeout', async () => {
   })
 })
 
+test('loadBatchConfig rejects timeout values above the node timer limit', async () => {
+  const workspaceRoot = await createWorkspace()
+  const configPath = path.join(workspaceRoot, 'batch.yaml')
+  await writeFile(
+    configPath,
+    [
+      'provider: codex',
+      'timeout: 2147483648',
+      'prompt: |',
+      '  summarize file',
+      'schema:',
+      '  type: object',
+      '',
+    ].join('\n'),
+  )
+
+  await expect(
+    loadBatchConfig({
+      configPath,
+      cwd: workspaceRoot,
+    }),
+  ).rejects.toThrow(/timeout/i)
+})
+
 test('loadBatchConfig rejects workdir because batch root now comes from the config file directory', async () => {
   const workspaceRoot = await createWorkspace()
   const configPath = path.join(workspaceRoot, 'batch.yaml')

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 const modelSchema = z.string().trim().min(1)
-const timeoutSchema = z.number().int().positive()
+const timeoutSchema = z.number().int().positive().max(2_147_483_647)
 
 export const codexEffortSchema = z.enum([
   'minimal',

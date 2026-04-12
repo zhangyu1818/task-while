@@ -63,7 +63,7 @@ workflow:
 Current status:
 
 - `workflow.roles.<role>.provider` accepts `codex` or `claude`; when omitted it defaults to `codex`, including roles that only set `model` and/or `effort`
-- `workflow.roles.<role>.timeout` is optional and sets a per-turn timeout in milliseconds for local agent runs
+- `workflow.roles.<role>.timeout` is optional and sets a per-turn timeout in milliseconds for local agent runs; valid values are positive integers up to `2147483647`
 - `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
 - `claude` `effort` accepts `low`, `medium`, `high`, or `max`
 - `workflow.mode: direct` requires `implementer` and `reviewer` to use identical `model` and `effort` when they share the same provider
@@ -165,7 +165,7 @@ Batch behavior:
 - batch `provider` accepts `codex` or `claude`
 - batch `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
 - batch `claude` `effort` accepts `low`, `medium`, `high`, or `max`
-- batch `timeout` is an optional per-file timeout in milliseconds
+- batch `timeout` is an optional per-file timeout in milliseconds; valid values are positive integers up to `2147483647`
 - each run scans files under the `batch.yaml` directory and filters them by `glob`
 - structured results are written beside the YAML file in `results.json`
 - internal harness state is written under `.while/harness/` beside the YAML file

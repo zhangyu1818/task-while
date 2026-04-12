@@ -184,6 +184,23 @@ test('loadWorkflowConfig parses optional timeout values for workflow roles', asy
   })
 })
 
+test('loadWorkflowConfig rejects timeout values above the node timer limit', async () => {
+  const workspaceRoot = await createWorkspace()
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    [
+      'workflow:',
+      '  roles:',
+      '    implementer:',
+      '      provider: codex',
+      '      timeout: 2147483648',
+      '',
+    ].join('\n'),
+  )
+
+  await expect(loadWorkflowConfig(workspaceRoot)).rejects.toThrow(/timeout/i)
+})
+
 test('loadWorkflowConfig defaults provider to codex when a role only configures model or effort', async () => {
   const workspaceRoot = await createWorkspace()
   await writeFile(
