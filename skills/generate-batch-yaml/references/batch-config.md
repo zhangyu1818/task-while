@@ -63,6 +63,13 @@ Optional:
 
 `schema` must be a JSON Schema object. The CLI validates structured output against it locally.
 
+When `provider: codex`, the schema must also satisfy Codex structured output constraints:
+
+- every object schema must set `additionalProperties: false`
+- every declared property must appear in `required`
+- nested object schemas must follow the same rules
+- if a field is optional in meaning, encode it as nullable instead of omitting it from `required`
+
 Recommended pattern:
 
 ```yaml
@@ -75,8 +82,10 @@ schema:
       type: array
       items:
         type: string
+  additionalProperties: false
   required:
     - summary
+    - tags
 ```
 
 ## Example config
@@ -98,6 +107,8 @@ schema:
       type: array
       items:
         type: string
+  additionalProperties: false
   required:
     - summary
+    - tags
 ```
