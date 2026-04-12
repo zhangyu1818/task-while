@@ -80,8 +80,15 @@ Good pattern:
 - top-level `type: object`
 - `properties` for every expected field
 - `required` listing the fields that must always exist
+- `additionalProperties: false` on every object schema
 - nested `items` for arrays
 - nested `properties` for objects
+
+If `provider` is `codex`, use Codex-compatible strict schemas:
+
+- every object schema, including nested objects, must set `additionalProperties: false`
+- every declared property must appear in `required`
+- if a field is semantically optional, keep it in `required` and allow `null` in its type instead of omitting it
 
 If the user only describes outcomes loosely, translate them into stable fields. Example:
 
