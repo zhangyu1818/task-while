@@ -127,6 +127,8 @@ cd /path/to/workspace
 pnpm exec task-while batch --config ./batch.yaml
 ```
 
+This repository also includes a repo-local skill at `skills/generate-batch-yaml/` for generating batch configs from natural-language requirements.
+
 Batch config example:
 
 ```yaml
