@@ -1,10 +1,13 @@
 import { describe, expect, test, vi } from 'vitest'
 
-import { TaskStatus, type TaskState } from '../src/harness/state'
+import { TaskStatus, type Artifact, type TaskState } from '../src/harness/state'
 import {
   WorkflowNodeType,
+  type ActionNode,
   type DomainResult,
   type TransitionRule,
+  type TypedArtifactMap,
+  type WorkflowNode,
 } from '../src/harness/workflow-program'
 import {
   BatchArtifactKind,
@@ -32,6 +35,14 @@ function resolveRule(
   result: DomainResult = { kind: '' },
 ) {
   return typeof rule === 'function' ? rule({ result, state }) : rule
+}
+
+function expectActionNode(node: undefined | WorkflowNode): ActionNode {
+  expect(node?.type).toBe(WorkflowNodeType.Action)
+  if (node?.type !== WorkflowNodeType.Action) {
+    throw new Error(`Expected action node, got ${node?.type ?? 'undefined'}`)
+  }
+  return node
 }
 
 function buildProgram(maxRetries = 3) {
@@ -120,8 +131,7 @@ describe('batch program', () => {
       validateOutput,
     })
 
-    const node = program.nodes[BatchPhase.Process]
-    expect(node.type).toBe(WorkflowNodeType.Action)
+    const node = expectActionNode(program.nodes[BatchPhase.Process])
 
     const prepareArtifact = {
       id: 'prepare',
@@ -129,16 +139,17 @@ describe('batch program', () => {
       payload: { content: 'alpha', filePath: 'input/a.txt' },
       subjectId: 'input/a.txt',
       timestamp: '2026-04-10T00:00:00.000Z',
+    } satisfies Artifact<{ content: string; filePath: string }>
+    const artifacts: TypedArtifactMap = {
+      get: <T = unknown>() => prepareArtifact as Artifact<T>,
+      has: () => true,
+      set() {},
     }
     const result = await node.run({
+      artifacts,
       config: {},
       state: makeState(),
       subjectId: 'input/a.txt',
-      artifacts: {
-        get: () => prepareArtifact,
-        has: () => true,
-        set() {},
-      },
     })
 
     expect(provider.runFile).toHaveBeenCalledOnce()

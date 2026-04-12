@@ -1,7 +1,12 @@
 import { describe, expect, test, vi } from 'vitest'
 
 import { TaskStatus, type Artifact } from '../src/harness/state'
-import { WorkflowNodeType } from '../src/harness/workflow-program'
+import {
+  WorkflowNodeType,
+  type ActionNode,
+  type TypedArtifactMap,
+  type WorkflowNode,
+} from '../src/harness/workflow-program'
 import {
   RunArtifactKind,
   RunPhase,
@@ -28,7 +33,7 @@ function createSnapshot(
   }
 }
 
-function createArtifacts() {
+function createArtifacts(): TypedArtifactMap {
   const checkpointArtifact: Artifact<CheckpointPayload> = {
     id: 'checkpoint',
     kind: RunArtifactKind.CheckpointResult,
@@ -50,12 +55,12 @@ function createArtifacts() {
     },
   }
   return {
-    get(kind: string) {
+    get<T = unknown>(kind: string) {
       if (kind === RunArtifactKind.CheckpointResult) {
-        return checkpointArtifact
+        return checkpointArtifact as Artifact<T>
       }
       if (kind === RunArtifactKind.Contract) {
-        return contractArtifact
+        return contractArtifact as Artifact<T>
       }
       return undefined
     },
@@ -90,6 +95,14 @@ function createProgram(snapshots: PullRequestSnapshot[]) {
   return { getPullRequestSnapshot, program }
 }
 
+function expectActionNode(node: undefined | WorkflowNode): ActionNode {
+  expect(node?.type).toBe(WorkflowNodeType.Action)
+  if (node?.type !== WorkflowNodeType.Action) {
+    throw new Error(`Expected action node, got ${node?.type ?? 'undefined'}`)
+  }
+  return node
+}
+
 describe('run-pr review polling', () => {
   test('keeps polling until approval', async () => {
     const { getPullRequestSnapshot, program } = createProgram([
@@ -105,9 +118,7 @@ describe('run-pr review polling', () => {
         ],
       }),
     ])
-    const node = program.nodes[RunPhase.Review]
-
-    expect(node.type).toBe(WorkflowNodeType.Action)
+    const node = expectActionNode(program.nodes[RunPhase.Review])
 
     const result = await node.run({
       artifacts: createArtifacts(),
@@ -151,9 +162,7 @@ describe('run-pr review polling', () => {
         ],
       }),
     ])
-    const node = program.nodes[RunPhase.Review]
-
-    expect(node.type).toBe(WorkflowNodeType.Action)
+    const node = expectActionNode(program.nodes[RunPhase.Review])
 
     const result = await node.run({
       artifacts: createArtifacts(),
