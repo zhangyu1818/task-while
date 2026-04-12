@@ -42,6 +42,38 @@ export interface RunBatchCommandResult {
   resultsFilePath: string
 }
 
+function writeBatchVerboseLine(verbose: boolean | undefined, line: string) {
+  if (!verbose) {
+    return
+  }
+  process.stderr.write(`[batch] ${line}\n`)
+}
+
+function readSessionProgress(detail: unknown) {
+  if (typeof detail !== 'object' || detail === null) {
+    return null
+  }
+  const progress = (detail as { progress?: unknown }).progress
+  if (typeof progress !== 'object' || progress === null) {
+    return null
+  }
+
+  const blocked =
+    typeof (progress as { blocked?: unknown }).blocked === 'number'
+      ? (progress as { blocked: number }).blocked
+      : 0
+  const completed =
+    typeof (progress as { completed?: unknown }).completed === 'number'
+      ? (progress as { completed: number }).completed
+      : 0
+  const suspended =
+    typeof (progress as { suspended?: unknown }).suspended === 'number'
+      ? (progress as { suspended: number }).suspended
+      : 0
+
+  return { blocked, completed, suspended }
+}
+
 async function readJsonFileIfExists(filePath: string) {
   const exists = await fsExtra.pathExists(filePath)
   if (!exists) {
@@ -138,6 +170,10 @@ export async function runBatchCommand(
   })
 
   const processedFiles: string[] = []
+  const totalFiles = discoveredFiles.length
+  let blockedCount = 0
+  let completedCount = 0
+  let suspendedCount = 0
 
   for await (const event of runSession({
     config: {},
@@ -153,8 +189,70 @@ export async function runBatchCommand(
         }),
     },
   })) {
+    if (event.type === SessionEventType.SessionStarted) {
+      const progress = readSessionProgress(event.detail)
+      if (progress) {
+        blockedCount = progress.blocked
+        completedCount = progress.completed
+        suspendedCount = progress.suspended
+      }
+      writeBatchVerboseLine(
+        input.verbose,
+        `resume total=${totalFiles} completed=${completedCount} blocked=${blockedCount} suspended=${suspendedCount}`,
+      )
+      continue
+    }
+
+    if (event.type === SessionEventType.SubjectStarted) {
+      writeBatchVerboseLine(
+        input.verbose,
+        `start completed=${completedCount}/${totalFiles} file=${event.subjectId}`,
+      )
+      continue
+    }
+
+    if (event.type === SessionEventType.SubjectResumed) {
+      suspendedCount = Math.max(0, suspendedCount - 1)
+      writeBatchVerboseLine(
+        input.verbose,
+        `resume-file completed=${completedCount}/${totalFiles} file=${event.subjectId}`,
+      )
+      continue
+    }
+
     if (event.type === SessionEventType.SubjectDone) {
+      completedCount += 1
       processedFiles.push(event.subjectId)
+      writeBatchVerboseLine(
+        input.verbose,
+        `done completed=${completedCount}/${totalFiles} file=${event.subjectId}`,
+      )
+      continue
+    }
+
+    if (event.type === SessionEventType.SubjectBlocked) {
+      blockedCount += 1
+      writeBatchVerboseLine(
+        input.verbose,
+        `blocked completed=${completedCount}/${totalFiles} file=${event.subjectId}`,
+      )
+      continue
+    }
+
+    if (event.type === SessionEventType.SubjectSuspended) {
+      suspendedCount += 1
+      writeBatchVerboseLine(
+        input.verbose,
+        `suspended completed=${completedCount}/${totalFiles} file=${event.subjectId}`,
+      )
+      continue
+    }
+
+    if (event.type === SessionEventType.SessionDone) {
+      writeBatchVerboseLine(
+        input.verbose,
+        `session-done total=${totalFiles} completed=${completedCount} blocked=${blockedCount} suspended=${suspendedCount}`,
+      )
     }
   }
 

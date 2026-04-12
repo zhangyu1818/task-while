@@ -165,7 +165,7 @@ Batch behavior:
 - structured results are written beside the YAML file in `results.json`
 - internal harness state is written under `.while/harness/` beside the YAML file
 - result keys are relative to the directory that contains `batch.yaml`
-- `--verbose` streams direct provider details to `stderr` during batch execution, including Claude init/task/tool/result summaries and Codex thinking, commands, MCP tools, file updates, todo changes, messages, and final usage
+- `--verbose` streams batch-level progress and direct provider details to `stderr` during batch execution, including the current file, completion counts, Claude init/task/tool/result summaries, and Codex thinking, commands, MCP tools, file updates, todo changes, messages, and final usage
 - rerunning the command resumes unfinished work and skips files that already have accepted results
 - failed files are suspended and retried after all pending files are processed
 - file-level retries are limited by `maxRetries` (default 3); exhausted files are marked blocked

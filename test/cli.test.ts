@@ -231,6 +231,15 @@ test('task-while batch --verbose smoke streams codex agent events to stderr thro
 
   expect(result.code).toBe(0)
   expect(result.stderr).toContain(
+    '[batch] resume total=1 completed=0 blocked=0 suspended=0',
+  )
+  expect(result.stderr).toContain(
+    '[batch] start completed=0/1 file=src/verbose.ts',
+  )
+  expect(result.stderr).toContain(
+    '[batch] done completed=1/1 file=src/verbose.ts',
+  )
+  expect(result.stderr).toContain(
     '[codex] message {"summary":"processed:src/verbose.ts"}',
   )
   expect(result.stderr).toContain('[codex] result tokens in=1 out=1 cached=0')
