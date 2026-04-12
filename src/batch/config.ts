@@ -97,6 +97,7 @@ export async function loadBatchConfig(
       provider: 'claude',
       ...(parsedConfig.model ? { model: parsedConfig.model } : {}),
       ...(parsedConfig.effort ? { effort: parsedConfig.effort } : {}),
+      ...(parsedConfig.timeout ? { timeout: parsedConfig.timeout } : {}),
     }
   }
 
@@ -105,5 +106,6 @@ export async function loadBatchConfig(
     provider: 'codex',
     ...(parsedConfig.model ? { model: parsedConfig.model } : {}),
     ...(parsedConfig.effort ? { effort: parsedConfig.effort } : {}),
+    ...(parsedConfig.timeout ? { timeout: parsedConfig.timeout } : {}),
   }
 }

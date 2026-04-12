@@ -6,6 +6,7 @@ import {
   validateImplementOutput,
   validateReviewOutput,
 } from '../schema/index'
+import { withAbortTimeout } from './timeout'
 
 import type { CodexProviderOptions } from './provider-options'
 import type {
@@ -143,6 +144,7 @@ export interface CodexRunStreamedResult {
 
 export interface CodexThreadRunOptions {
   outputSchema: Record<string, unknown>
+  signal?: AbortSignal
 }
 
 export interface CodexThreadLike {
@@ -190,9 +192,11 @@ export class CodexAgentClient implements ImplementerProvider, ReviewerProvider {
   private async collectStreamedTurn<T>(
     thread: CodexThreadLike,
     input: CodexStructuredInput,
+    signal?: AbortSignal,
   ): Promise<T> {
     const streamedTurn = await thread.runStreamed!(input.prompt, {
       outputSchema: input.outputSchema,
+      ...(signal ? { signal } : {}),
     })
     let finalResponse = ''
 
@@ -259,23 +263,34 @@ export class CodexAgentClient implements ImplementerProvider, ReviewerProvider {
     const thread = client.startThread(startThreadOptions)
 
     if (this.options.onEvent && thread.runStreamed) {
-      return this.collectStreamedTurn<T>(thread, input)
+      return withAbortTimeout(this.name, this.options.timeout, (controller) =>
+        this.collectStreamedTurn<T>(thread, input, controller?.signal),
+      )
     }
-
-    const turn = await thread.run(input.prompt, {
-      outputSchema: input.outputSchema,
-    })
-    const response = turn.finalResponse.trim()
-    if (!response) {
-      throw new Error('Codex agent client returned empty finalResponse')
-    }
-    try {
-      return JSON.parse(response) as T
-    } catch (error) {
-      throw new Error('Codex agent client returned non-JSON finalResponse', {
-        cause: error,
-      })
-    }
+    return withAbortTimeout(
+      this.name,
+      this.options.timeout,
+      async (controller) => {
+        const turn = await thread.run(input.prompt, {
+          outputSchema: input.outputSchema,
+          ...(controller ? { signal: controller.signal } : {}),
+        })
+        const response = turn.finalResponse.trim()
+        if (!response) {
+          throw new Error('Codex agent client returned empty finalResponse')
+        }
+        try {
+          return JSON.parse(response) as T
+        } catch (error) {
+          throw new Error(
+            'Codex agent client returned non-JSON finalResponse',
+            {
+              cause: error,
+            },
+          )
+        }
+      },
+    )
   }
 
   public async review(input: ReviewAgentInput) {

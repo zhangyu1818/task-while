@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 const modelSchema = z.string().trim().min(1)
+const timeoutSchema = z.number().int().positive()
 
 export const codexEffortSchema = z.enum([
   'minimal',
@@ -16,6 +17,7 @@ export const codexProviderOptionsSchema = z
   .object({
     effort: codexEffortSchema.optional(),
     model: modelSchema.optional(),
+    timeout: timeoutSchema.optional(),
   })
   .strict()
 
@@ -23,6 +25,7 @@ export const claudeProviderOptionsSchema = z
   .object({
     effort: claudeEffortSchema.optional(),
     model: modelSchema.optional(),
+    timeout: timeoutSchema.optional(),
   })
   .strict()
 
@@ -42,4 +45,18 @@ export function providerOptionsEqual(
     left.model === right.model &&
     left.effort === right.effort
   )
+}
+
+export function providerOptionsCacheKey(options: {
+  effort?: string | undefined
+  model?: string | undefined
+  provider: 'claude' | 'codex'
+  timeout?: number | undefined
+}) {
+  return [
+    options.provider,
+    options.model ?? '',
+    options.effort ?? '',
+    String(options.timeout ?? ''),
+  ].join(':')
 }

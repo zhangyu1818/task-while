@@ -142,6 +142,7 @@ test('ClaudeAgentClient passes configured model and effort defaults to query opt
   const client = new ClaudeAgentClient({
     effort: 'max',
     model: 'claude-sonnet-4-6',
+    timeout: 300000,
     workspaceRoot: '/tmp/project',
   })
 
@@ -154,10 +155,15 @@ test('ClaudeAgentClient passes configured model and effort defaults to query opt
   })
 
   const args = mockState.queryArgs as {
-    options: { effort?: string; model?: string }
+    options: {
+      abortController?: AbortController
+      effort?: string
+      model?: string
+    }
   }
   expect(args.options.model).toBe('claude-sonnet-4-6')
   expect(args.options.effort).toBe('max')
+  expect(args.options.abortController).toBeInstanceOf(AbortController)
 })
 
 test('ClaudeAgentClient throws when query returns error result', async () => {

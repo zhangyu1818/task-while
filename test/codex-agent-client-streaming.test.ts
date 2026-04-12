@@ -30,6 +30,7 @@ beforeEach(() => {
 test('CodexAgentClient passes prompt and structured output schema to streamed SDK runs', async () => {
   let receivedPrompt = ''
   let receivedSchema: Record<string, unknown> | undefined
+  let receivedSignal: AbortSignal | undefined
 
   mockState.client = {
     startThread() {
@@ -40,6 +41,7 @@ test('CodexAgentClient passes prompt and structured output schema to streamed SD
         async runStreamed(prompt, runOptions) {
           receivedPrompt = prompt
           receivedSchema = runOptions.outputSchema
+          receivedSignal = runOptions.signal
           return {
             events: (async function* () {
               yield { thread_id: 'thread-1', type: 'thread.started' as const }
@@ -76,6 +78,7 @@ test('CodexAgentClient passes prompt and structured output schema to streamed SD
   }
 
   const client = new CodexAgentClient({
+    timeout: 600000,
     workspaceRoot: '/tmp/project',
     onEvent() {},
   })
@@ -95,6 +98,7 @@ test('CodexAgentClient passes prompt and structured output schema to streamed SD
 
   expect(receivedPrompt).toMatch(/Create parser/)
   expect(receivedSchema?.required).toContain('taskHandle')
+  expect(receivedSignal).toBeInstanceOf(AbortSignal)
   expect(result.taskHandle).toBe('T001')
 })
 

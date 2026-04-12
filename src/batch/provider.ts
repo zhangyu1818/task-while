@@ -70,6 +70,7 @@ export function createBatchStructuredOutputProvider(
       new CodexAgentClient({
         ...(input.effort ? { effort: input.effort } : {}),
         ...(input.model ? { model: input.model } : {}),
+        ...(input.timeout ? { timeout: input.timeout } : {}),
         ...(onEvent ? { onEvent } : {}),
         workspaceRoot: input.workspaceRoot,
       }),
@@ -81,6 +82,7 @@ export function createBatchStructuredOutputProvider(
     new ClaudeAgentClient({
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.model ? { model: input.model } : {}),
+      ...(input.timeout ? { timeout: input.timeout } : {}),
       ...(onEvent ? { onEvent } : {}),
       workspaceRoot: input.workspaceRoot,
     }),

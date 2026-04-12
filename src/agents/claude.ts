@@ -6,6 +6,7 @@ import {
   validateImplementOutput,
   validateReviewOutput,
 } from '../schema/index'
+import { withAbortTimeout } from './timeout'
 
 import type { Options as ClaudeQueryOptions } from '@anthropic-ai/claude-agent-sdk'
 
@@ -278,34 +279,41 @@ export class ClaudeAgentClient
 
   public async invokeStructured<T>(input: ClaudeStructuredInput): Promise<T> {
     const { query } = await import('@anthropic-ai/claude-agent-sdk')
-    const queryOptions = {
-      allowDangerouslySkipPermissions: true,
-      cwd: this.options.workspaceRoot,
-      permissionMode: 'bypassPermissions',
-      outputFormat: {
-        schema: input.outputSchema,
-        type: 'json_schema',
+    return withAbortTimeout(
+      this.name,
+      this.options.timeout,
+      async (controller) => {
+        const queryOptions = {
+          allowDangerouslySkipPermissions: true,
+          cwd: this.options.workspaceRoot,
+          permissionMode: 'bypassPermissions',
+          outputFormat: {
+            schema: input.outputSchema,
+            type: 'json_schema',
+          },
+          ...(this.options.onEvent
+            ? {
+                agentProgressSummaries: true,
+                includePartialMessages: true,
+              }
+            : {
+                includePartialMessages: false,
+              }),
+          ...(this.options.model ? { model: this.options.model } : {}),
+          ...(this.options.effort ? { effort: this.options.effort } : {}),
+          ...(controller ? { abortController: controller } : {}),
+        } satisfies ClaudeQueryOptions
+
+        const messages = query({
+          options: queryOptions,
+          prompt: input.prompt,
+        })
+
+        return this.collectStructuredOutput(
+          messages as AsyncIterable<QueryMessage>,
+        ) as Promise<T>
       },
-      ...(this.options.onEvent
-        ? {
-            agentProgressSummaries: true,
-            includePartialMessages: true,
-          }
-        : {
-            includePartialMessages: false,
-          }),
-      ...(this.options.model ? { model: this.options.model } : {}),
-      ...(this.options.effort ? { effort: this.options.effort } : {}),
-    } satisfies ClaudeQueryOptions
-
-    const messages = query({
-      options: queryOptions,
-      prompt: input.prompt,
-    })
-
-    return this.collectStructuredOutput(
-      messages as AsyncIterable<QueryMessage>,
-    ) as Promise<T>
+    )
   }
 
   public async review(input: ReviewAgentInput) {

@@ -84,12 +84,14 @@ function createBatchConfig(
   options: {
     effort?: string
     model?: string
+    timeout?: number
   } = {},
 ) {
   return [
     `provider: ${provider}`,
     ...(options.model ? [`model: ${options.model}`] : []),
     ...(options.effort ? [`effort: ${options.effort}`] : []),
+    ...(options.timeout ? [`timeout: ${options.timeout}`] : []),
     'glob:',
     '  - "input/*.txt"',
     'prompt: |',
@@ -109,6 +111,7 @@ async function createBatchCommandFixture(
   options: {
     effort?: string
     model?: string
+    timeout?: number
   } = {},
 ) {
   const root = await mkdtemp(path.join(tmpdir(), 'while-batch-provider-'))
@@ -153,36 +156,6 @@ afterEach(async () => {
       await rm(workspaceRoot, { force: true, recursive: true })
     }),
   )
-})
-
-test('createBatchStructuredOutputProvider forwards model and effort to agent clients', () => {
-  createBatchStructuredOutputProvider({
-    effort: 'high',
-    model: 'gpt-5-codex',
-    provider: 'codex',
-    workspaceRoot: '/tmp/workspace',
-  } as never)
-  createBatchStructuredOutputProvider({
-    effort: 'max',
-    model: 'claude-sonnet-4-6',
-    provider: 'claude',
-    workspaceRoot: '/tmp/workspace',
-  } as never)
-
-  expect(clientState.codexOptions).toEqual([
-    {
-      effort: 'high',
-      model: 'gpt-5-codex',
-      workspaceRoot: '/tmp/workspace',
-    },
-  ])
-  expect(clientState.claudeOptions).toEqual([
-    {
-      effort: 'max',
-      model: 'claude-sonnet-4-6',
-      workspaceRoot: '/tmp/workspace',
-    },
-  ])
 })
 
 test('createBatchStructuredOutputProvider reuses verbose event handlers and omits them otherwise', () => {

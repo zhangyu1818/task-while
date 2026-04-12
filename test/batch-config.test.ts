@@ -103,6 +103,38 @@ test('loadBatchConfig accepts both string and array glob values', async () => {
   })
 })
 
+test('loadBatchConfig parses an optional provider timeout', async () => {
+  const workspaceRoot = await createWorkspace()
+  const configPath = path.join(workspaceRoot, 'batch.yaml')
+  await writeFile(
+    configPath,
+    [
+      'provider: codex',
+      'timeout: 600000',
+      'prompt: |',
+      '  summarize file',
+      'schema:',
+      '  type: object',
+      '  properties:',
+      '    summary:',
+      '      type: string',
+      '  required:',
+      '    - summary',
+      '',
+    ].join('\n'),
+  )
+
+  const config = await loadBatchConfig({
+    configPath,
+    cwd: workspaceRoot,
+  })
+
+  expect(config).toMatchObject({
+    provider: 'codex',
+    timeout: 600000,
+  })
+})
+
 test('loadBatchConfig rejects workdir because batch root now comes from the config file directory', async () => {
   const workspaceRoot = await createWorkspace()
   const configPath = path.join(workspaceRoot, 'batch.yaml')
