@@ -69,9 +69,7 @@ describe('runSession', () => {
       b: { status: TaskStatus.Done },
     })
 
-    const events = await collectEvents(
-      runSession({ config: {}, kernel, scheduler }),
-    )
+    const events = await collectEvents(runSession({ kernel, scheduler }))
 
     const types = events.map((e) => e.type)
     expect(types).toEqual([
@@ -90,9 +88,7 @@ describe('runSession', () => {
       a: { status: TaskStatus.Blocked },
     })
 
-    const events = await collectEvents(
-      runSession({ config: {}, kernel, scheduler }),
-    )
+    const events = await collectEvents(runSession({ kernel, scheduler }))
 
     const types = events.map((e) => e.type)
     expect(types).toContain(SessionEventType.SubjectBlocked)
@@ -113,9 +109,7 @@ describe('runSession', () => {
       },
     }
 
-    const events = await collectEvents(
-      runSession({ config: {}, kernel, scheduler }),
-    )
+    const events = await collectEvents(runSession({ kernel, scheduler }))
 
     const types = events.map((e) => e.type)
     expect(types).toEqual([

@@ -1,22 +1,16 @@
 import { openspecTaskSource } from './openspec/source'
 import { specKitTaskSource } from './spec-kit/source'
 
-import type { TaskSource } from './types'
+import type { OpenTaskSourceInput, TaskSource, TaskSourceName } from './types'
 
-export function getTaskSource(name: string): TaskSource {
-  if (name === 'spec-kit') {
-    return specKitTaskSource
-  }
-  if (name === 'openspec') {
-    return openspecTaskSource
-  }
-
-  throw new Error(`Unknown task source: ${name}`)
+const taskSources: Record<TaskSourceName, TaskSource> = {
+  openspec: openspecTaskSource,
+  'spec-kit': specKitTaskSource,
 }
 
 export async function openTaskSource(
-  name: string,
-  input: Parameters<TaskSource['open']>[0],
+  name: TaskSourceName,
+  input: OpenTaskSourceInput,
 ) {
-  return getTaskSource(name).open(input)
+  return taskSources[name].open(input)
 }

@@ -5,23 +5,30 @@ import {
   sleep,
   toTaskBranchName,
 } from '../commands/run-branch-helpers'
-import { action, sequence } from '../harness/workflow-builders'
+import {
+  errorRetry,
+  KernelResultKind,
+  retryBudgetReached,
+} from '../harness/kernel'
+import { TaskStatus } from '../harness/state'
+import {
+  createWorkflowProgram,
+  type Transition,
+  type TransitionRule,
+  type WorkflowProgram,
+} from '../harness/workflow-program'
 import { finalizeTaskCheckbox } from '../workflow/finalize-task-checkbox'
 import { createCodexRemoteReviewerProvider } from '../workflow/remote-reviewer'
 import { RunArtifactKind, RunPhase, RunResult } from './run-direct'
-import { createRunPrTransitions } from './run-pr-transitions'
 import {
   createSharedSteps,
-  type ContractPayload,
+  makeArtifact,
   type ReviewPayload,
   type RuntimePorts,
-  type SharedSteps,
 } from './shared-steps'
 
-import type { OrchestratorRuntime } from '../core/runtime'
-import type { WorkflowProgram } from '../harness/workflow-program'
+import type { GitHubPort, OrchestratorRuntime } from '../core/runtime'
 import type { AgentPort } from '../ports/agent'
-import type { CodeHostPort } from '../ports/code-host'
 
 export interface CheckpointPayload {
   checkpointStartedAt: string
@@ -33,53 +40,187 @@ export interface IntegratePrPayload {
   prNumber: number
 }
 
+const remoteReviewer = createCodexRemoteReviewerProvider()
+
+async function createCheckpointResult(input: {
+  iteration: number
+  ports: RuntimePorts & { github: GitHubPort }
+  subjectId: string
+}) {
+  const result = await runPrCheckpoint(
+    { git: input.ports.git, github: input.ports.github },
+    input.ports.taskSource,
+    { iteration: input.iteration, subjectId: input.subjectId },
+  )
+  return {
+    result: { kind: RunResult.CheckpointCreated as const },
+    artifact: makeArtifact(RunArtifactKind.CheckpointResult, input.subjectId, {
+      checkpointStartedAt: result.checkpointStartedAt,
+      prNumber: result.prNumber,
+    } satisfies CheckpointPayload),
+  }
+}
+
+async function createReviewResult(input: {
+  checkpoint: CheckpointPayload
+  completionCriteria: string[]
+  github: GitHubPort
+  reviewPollIntervalMs: number
+  subjectId: string
+}) {
+  let reviewResult: Awaited<
+    ReturnType<typeof remoteReviewer.evaluatePullRequestReview>
+  >
+  for (;;) {
+    const snapshot = await input.github.getPullRequestSnapshot({
+      pullRequestNumber: input.checkpoint.prNumber,
+    })
+    reviewResult = await remoteReviewer.evaluatePullRequestReview({
+      checkpointStartedAt: input.checkpoint.checkpointStartedAt,
+      completionCriteria: input.completionCriteria,
+      pullRequest: snapshot,
+      taskHandle: input.subjectId,
+    })
+    if (reviewResult.kind !== 'pending') {
+      break
+    }
+    if (input.reviewPollIntervalMs > 0) {
+      await sleep(input.reviewPollIntervalMs)
+    }
+  }
+
+  const payload: ReviewPayload =
+    reviewResult.kind === 'approved'
+      ? {
+          findings: [],
+          summary: reviewResult.review.summary,
+          verdict: 'approved',
+        }
+      : {
+          summary: reviewResult.review.summary,
+          verdict: 'rejected',
+          findings: reviewResult.review.findings.map((finding) => ({
+            fixHint: finding.fixHint,
+            issue: finding.issue,
+            severity: finding.severity,
+          })),
+        }
+
+  return {
+    artifact: makeArtifact(
+      RunArtifactKind.ReviewResult,
+      input.subjectId,
+      payload,
+    ),
+    result: {
+      kind:
+        payload.verdict === 'approved'
+          ? RunResult.ReviewApproved
+          : RunResult.ReviewRejected,
+    },
+  }
+}
+
+async function createIntegrateResult(input: {
+  ports: RuntimePorts & { github: GitHubPort }
+  subjectId: string
+}) {
+  const commitSubject = input.ports.taskSource.buildCommitSubject(
+    input.subjectId,
+  )
+  const branchName = toTaskBranchName(commitSubject)
+  const openPr = await input.ports.github.findOpenPullRequestByHeadBranch({
+    headBranch: branchName,
+  })
+
+  if (openPr) {
+    await ensureTaskBranch(input.ports.git, branchName, true)
+    const taskChecked = await input.ports.taskSource.isTaskCompleted(
+      input.subjectId,
+    )
+    if (!taskChecked) {
+      await finalizeTaskCheckbox({
+        commitMessage: commitSubject,
+        taskHandle: input.subjectId,
+        runtime: {
+          git: input.ports.git,
+          github: input.ports.github,
+          taskSource: input.ports.taskSource,
+        } as OrchestratorRuntime,
+      })
+    }
+    await input.ports.git.pushBranch(branchName)
+    const mergeResult = await input.ports.github.squashMergePullRequest({
+      pullRequestNumber: openPr.number,
+      subject: commitSubject,
+    })
+    await cleanupBranch(input.ports.git, branchName)
+    return {
+      result: { kind: RunResult.IntegrateCompleted as const },
+      artifact: makeArtifact(RunArtifactKind.IntegrateResult, input.subjectId, {
+        commitSha: mergeResult.commitSha,
+        prNumber: openPr.number,
+      } satisfies IntegratePrPayload),
+    }
+  }
+
+  const mergedPr = await input.ports.github.findMergedPullRequestByHeadBranch({
+    headBranch: branchName,
+  })
+  if (!mergedPr) {
+    throw new Error(
+      `Missing open or merged pull request for branch ${branchName}`,
+    )
+  }
+
+  await cleanupBranch(input.ports.git, branchName)
+  return {
+    result: { kind: RunResult.IntegrateAlreadyIntegrated as const },
+    artifact: makeArtifact(RunArtifactKind.IntegrateResult, input.subjectId, {
+      commitSha: mergedPr.mergeCommitSha,
+      prNumber: mergedPr.number,
+    } satisfies IntegratePrPayload),
+  }
+}
+
 export function createRunPrProgram(deps: {
   implementer: AgentPort
   maxIterations: number
-  ports: RuntimePorts & { codeHost: CodeHostPort }
-  reviewer: AgentPort
+  ports: RuntimePorts & { github: GitHubPort }
   reviewPollIntervalMs?: number
   verifyCommands: string[]
   workspaceRoot: string
 }): WorkflowProgram {
-  const { maxIterations } = deps
   const reviewPollIntervalMs = deps.reviewPollIntervalMs ?? 60_000
-  const steps: SharedSteps = createSharedSteps({
+  const onError = errorRetry(deps.maxIterations)
+  const steps = createSharedSteps({
     implementer: deps.implementer,
     ports: deps.ports,
-    reviewer: deps.reviewer,
     verifyCommands: deps.verifyCommands,
     workspaceRoot: deps.workspaceRoot,
     artifactKinds: {
-      contract: RunArtifactKind.Contract,
       implementation: RunArtifactKind.Implementation,
       integrateResult: RunArtifactKind.IntegrateResult,
       reviewResult: RunArtifactKind.ReviewResult,
       verifyResult: RunArtifactKind.VerifyResult,
     },
   })
+  const running = (nextPhase: RunPhase): Transition => ({
+    nextPhase,
+    status: TaskStatus.Running,
+  })
+  const done: Transition = { nextPhase: null, status: TaskStatus.Done }
+  const replan: Transition = { nextPhase: null, status: TaskStatus.Replan }
+  const retryImplementOrBlock: TransitionRule = ({ state }) =>
+    retryBudgetReached(state, deps.maxIterations)
+      ? { nextPhase: null, status: TaskStatus.Blocked }
+      : running(RunPhase.Implement)
 
-  const remoteReviewer = createCodexRemoteReviewerProvider()
-
-  return sequence(
+  return createWorkflowProgram(
     [
-      action(RunPhase.Contract, {
+      {
+        name: RunPhase.Implement,
         async run(ctx) {
-          const artifact = await steps.contract(ctx.subjectId, {
-            attempt: ctx.state.iteration,
-            lastFindings: [],
-          })
-          return {
-            artifact,
-            result: { kind: RunResult.ContractGenerated },
-          }
-        },
-      }),
-      action(RunPhase.Implement, {
-        async run(ctx) {
-          const contractArtifact = ctx.artifacts.get<ContractPayload>(
-            RunArtifactKind.Contract,
-          )
           const reviewArtifact = ctx.artifacts.get<ReviewPayload>(
             RunArtifactKind.ReviewResult,
           )
@@ -87,15 +228,15 @@ export function createRunPrProgram(deps: {
           const artifact = await steps.implement(ctx.subjectId, {
             attempt: ctx.state.iteration,
             lastFindings,
-            prompt: contractArtifact!.payload.prompt,
           })
           return {
             artifact,
             result: { kind: RunResult.ImplementationGenerated },
           }
         },
-      }),
-      action(RunPhase.Verify, {
+      },
+      {
+        name: RunPhase.Verify,
         async run(ctx) {
           const artifact = await steps.verify(ctx.subjectId)
           const allPassed = artifact.payload.checks.every(
@@ -108,183 +249,69 @@ export function createRunPrProgram(deps: {
             },
           }
         },
-      }),
-      action(RunPhase.Checkpoint, {
+      },
+      {
+        name: RunPhase.Checkpoint,
         async run(ctx) {
-          const result = await runPrCheckpoint(
-            { codeHost: deps.ports.codeHost, git: deps.ports.git },
-            deps.ports.taskSource,
-            { iteration: ctx.state.iteration, subjectId: ctx.subjectId },
-          )
-          const payload: CheckpointPayload = {
-            checkpointStartedAt: result.checkpointStartedAt,
-            prNumber: result.prNumber,
-          }
-          return {
-            result: { kind: RunResult.CheckpointCreated },
-            artifact: {
-              id: `${RunArtifactKind.CheckpointResult}-${ctx.subjectId}-${Date.now()}`,
-              kind: RunArtifactKind.CheckpointResult,
-              payload,
-              subjectId: ctx.subjectId,
-              timestamp: new Date().toISOString(),
-            },
-          }
+          return createCheckpointResult({
+            iteration: ctx.state.iteration,
+            ports: deps.ports,
+            subjectId: ctx.subjectId,
+          })
         },
-      }),
-      action(RunPhase.Review, {
+      },
+      {
+        name: RunPhase.Review,
         async run(ctx) {
           const checkpointArtifact = ctx.artifacts.get<CheckpointPayload>(
             RunArtifactKind.CheckpointResult,
           )
-          const contractArtifact = ctx.artifacts.get<ContractPayload>(
-            RunArtifactKind.Contract,
-          )
-          let reviewResult: Awaited<
-            ReturnType<typeof remoteReviewer.evaluatePullRequestReview>
-          >
-          for (;;) {
-            const snapshot = await deps.ports.codeHost.getPullRequestSnapshot({
-              pullRequestNumber: checkpointArtifact!.payload.prNumber,
-            })
-            reviewResult = await remoteReviewer.evaluatePullRequestReview({
-              pullRequest: snapshot,
-              taskHandle: ctx.subjectId,
-              checkpointStartedAt:
-                checkpointArtifact!.payload.checkpointStartedAt,
-              completionCriteria:
-                contractArtifact?.payload.completionCriteria ?? [],
-            })
-            if (reviewResult.kind !== 'pending') {
-              break
-            }
-            if (reviewPollIntervalMs > 0) {
-              await sleep(reviewPollIntervalMs)
-            }
-          }
-
-          let verdict: string
-          let findings: ReviewPayload['findings'] = []
-          let summary: string
-
-          if (reviewResult.kind === 'approved') {
-            verdict = 'approved'
-            summary = reviewResult.review.summary
-          } else {
-            verdict = 'rejected'
-            summary = reviewResult.review.summary
-            findings = reviewResult.review.findings.map((f) => ({
-              fixHint: f.fixHint,
-              issue: f.issue,
-              severity: f.severity,
-            }))
-          }
-
-          const kind =
-            verdict === 'approved'
-              ? RunResult.ReviewApproved
-              : RunResult.ReviewRejected
-
-          const payload: ReviewPayload = {
-            findings,
-            summary,
-            verdict,
-          }
-
-          return {
-            result: { kind },
-            artifact: {
-              id: `${RunArtifactKind.ReviewResult}-${ctx.subjectId}-${Date.now()}`,
-              kind: RunArtifactKind.ReviewResult,
-              payload,
-              subjectId: ctx.subjectId,
-              timestamp: new Date().toISOString(),
-            },
-          }
+          const completionCriteria =
+            await deps.ports.taskSource.getCompletionCriteria(ctx.subjectId)
+          return createReviewResult({
+            checkpoint: checkpointArtifact!.payload,
+            completionCriteria,
+            github: deps.ports.github,
+            reviewPollIntervalMs,
+            subjectId: ctx.subjectId,
+          })
         },
-      }),
-      action(RunPhase.Integrate, {
+      },
+      {
+        name: RunPhase.Integrate,
         async run(ctx) {
-          const commitSubject = deps.ports.taskSource.buildCommitSubject(
-            ctx.subjectId,
-          )
-          const branchName = toTaskBranchName(commitSubject)
-
-          const openPr =
-            await deps.ports.codeHost.findOpenPullRequestByHeadBranch({
-              headBranch: branchName,
-            })
-
-          if (openPr) {
-            await ensureTaskBranch(deps.ports.git, branchName, true)
-            const taskChecked = await deps.ports.taskSource.isTaskCompleted(
-              ctx.subjectId,
-            )
-            if (!taskChecked) {
-              await finalizeTaskCheckbox({
-                commitMessage: commitSubject,
-                taskHandle: ctx.subjectId,
-                runtime: {
-                  git: deps.ports.git,
-                  github: deps.ports.codeHost,
-                  taskSource: deps.ports.taskSource,
-                } as OrchestratorRuntime,
-              })
-            }
-            await deps.ports.git.pushBranch(branchName)
-            const mergeResult =
-              await deps.ports.codeHost.squashMergePullRequest({
-                pullRequestNumber: openPr.number,
-                subject: commitSubject,
-              })
-
-            await cleanupBranch(deps.ports.git, branchName)
-
-            const payload: IntegratePrPayload = {
-              commitSha: mergeResult.commitSha,
-              prNumber: openPr.number,
-            }
-            return {
-              result: { kind: RunResult.IntegrateCompleted },
-              artifact: {
-                id: `${RunArtifactKind.IntegrateResult}-${ctx.subjectId}-${Date.now()}`,
-                kind: RunArtifactKind.IntegrateResult,
-                payload,
-                subjectId: ctx.subjectId,
-                timestamp: new Date().toISOString(),
-              },
-            }
-          }
-
-          const mergedPr =
-            await deps.ports.codeHost.findMergedPullRequestByHeadBranch({
-              headBranch: branchName,
-            })
-          if (!mergedPr) {
-            throw new Error(
-              `Missing open or merged pull request for branch ${branchName}`,
-            )
-          }
-
-          await cleanupBranch(deps.ports.git, branchName)
-
-          const payload: IntegratePrPayload = {
-            commitSha: mergedPr.mergeCommitSha,
-            prNumber: mergedPr.number,
-          }
-          return {
-            result: { kind: RunResult.IntegrateAlreadyIntegrated },
-            artifact: {
-              id: `${RunArtifactKind.IntegrateResult}-${ctx.subjectId}-${Date.now()}`,
-              kind: RunArtifactKind.IntegrateResult,
-              payload,
-              subjectId: ctx.subjectId,
-              timestamp: new Date().toISOString(),
-            },
-          }
+          return createIntegrateResult({
+            ports: deps.ports,
+            subjectId: ctx.subjectId,
+          })
         },
-      }),
+      },
     ],
-    createRunPrTransitions(maxIterations),
+    {
+      [RunPhase.Checkpoint]: {
+        [KernelResultKind.Error]: onError(RunPhase.Checkpoint),
+        [RunResult.CheckpointCreated]: running(RunPhase.Review),
+      },
+      [RunPhase.Implement]: {
+        [KernelResultKind.Error]: onError(RunPhase.Implement),
+        [RunResult.ImplementationGenerated]: running(RunPhase.Verify),
+      },
+      [RunPhase.Integrate]: {
+        [KernelResultKind.Error]: onError(RunPhase.Integrate),
+        [RunResult.IntegrateAlreadyIntegrated]: done,
+        [RunResult.IntegrateCompleted]: done,
+      },
+      [RunPhase.Review]: {
+        [KernelResultKind.Error]: onError(RunPhase.Implement),
+        [RunResult.ReviewApproved]: running(RunPhase.Integrate),
+        [RunResult.ReviewRejected]: retryImplementOrBlock,
+        [RunResult.ReviewReplanRequired]: replan,
+      },
+      [RunPhase.Verify]: {
+        [KernelResultKind.Error]: onError(RunPhase.Implement),
+        [RunResult.VerifyFailed]: retryImplementOrBlock,
+        [RunResult.VerifyPassed]: running(RunPhase.Checkpoint),
+      },
+    },
   )
 }

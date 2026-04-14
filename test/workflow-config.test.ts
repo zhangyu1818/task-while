@@ -232,7 +232,7 @@ test('loadWorkflowConfig defaults provider to codex when a role only configures 
   })
 })
 
-test('loadWorkflowConfig rejects provider-specific unsupported effort values', async () => {
+test('loadWorkflowConfig rejects unsupported effort values and empty model strings', async () => {
   const workspaceRoot = await createWorkspace()
   await writeFile(
     path.join(workspaceRoot, 'while.yaml'),
@@ -247,10 +247,6 @@ test('loadWorkflowConfig rejects provider-specific unsupported effort values', a
   )
 
   await expect(loadWorkflowConfig(workspaceRoot)).rejects.toThrow(/effort/i)
-})
-
-test('loadWorkflowConfig rejects an empty model string', async () => {
-  const workspaceRoot = await createWorkspace()
   await writeFile(
     path.join(workspaceRoot, 'while.yaml'),
     [
@@ -266,7 +262,7 @@ test('loadWorkflowConfig rejects an empty model string', async () => {
   await expect(loadWorkflowConfig(workspaceRoot)).rejects.toThrow(/model/i)
 })
 
-test('loadWorkflowConfig preserves a custom task source string while keeping spec-kit as the default', async () => {
+test('loadWorkflowConfig parses built-in task sources and rejects unknown ones', async () => {
   const workspaceRoot = await createWorkspace()
   await writeFile(
     path.join(workspaceRoot, 'while.yaml'),
@@ -291,6 +287,15 @@ test('loadWorkflowConfig preserves a custom task source string while keeping spe
       },
     },
   })
+
+  await writeFile(
+    path.join(workspaceRoot, 'while.yaml'),
+    ['task:', '  source: custom-source', ''].join('\n'),
+  )
+
+  await expect(loadWorkflowConfig(workspaceRoot)).rejects.toThrow(
+    /spec-kit|openspec/i,
+  )
 })
 
 test('loadWorkflowConfig rejects unknown keys instead of silently defaulting', async () => {
@@ -311,7 +316,7 @@ test('loadWorkflowConfig rejects unknown keys instead of silently defaulting', a
   )
 })
 
-test('loadWorkflowConfig reads verify.commands from yaml', async () => {
+test('loadWorkflowConfig reads verify.commands from yaml and defaults to empty array', async () => {
   const workspaceRoot = await createWorkspace()
   await writeFile(
     path.join(workspaceRoot, 'while.yaml'),
@@ -325,10 +330,6 @@ test('loadWorkflowConfig reads verify.commands from yaml', async () => {
   )
   const config = await loadWorkflowConfig(workspaceRoot)
   expect(config.verify).toEqual({ commands: ['pnpm lint:fix', 'pnpm test'] })
-})
-
-test('loadWorkflowConfig defaults verify.commands to empty array', async () => {
-  const workspaceRoot = await createWorkspace()
-  const config = await loadWorkflowConfig(workspaceRoot)
-  expect(config.verify).toEqual({ commands: [] })
+  const defaultConfig = await loadWorkflowConfig(await createWorkspace())
+  expect(defaultConfig.verify).toEqual({ commands: [] })
 })

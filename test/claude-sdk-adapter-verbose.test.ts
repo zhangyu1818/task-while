@@ -112,7 +112,6 @@ test('ClaudeAgentClient forwards detailed verbose events to onEvent handler', as
 
   await client.implement({
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     prompt: createTaskPrompt(),
     taskHandle: 'T001',
@@ -172,7 +171,6 @@ test('ClaudeAgentClient enables progress-oriented Claude query flags only when o
 
   await client.implement({
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     prompt: createTaskPrompt(),
     taskHandle: 'T001',

@@ -4,22 +4,22 @@ import {
   retryBudgetReached,
 } from '../harness/kernel'
 import { TaskStatus } from '../harness/state'
-import { action, sequence } from '../harness/workflow-builders'
+import {
+  createWorkflowProgram,
+  type WorkflowProgram,
+} from '../harness/workflow-program'
 import {
   createSharedSteps,
-  type ContractPayload,
   type ImplementPayload,
   type ReviewPayload,
   type RuntimePorts,
   type SharedSteps,
 } from './shared-steps'
 
-import type { WorkflowProgram } from '../harness/workflow-program'
 import type { AgentPort } from '../ports/agent'
 
 export enum RunPhase {
   Checkpoint = 'checkpoint',
-  Contract = 'contract',
   Implement = 'implement',
   Integrate = 'integrate',
   Review = 'review',
@@ -28,7 +28,6 @@ export enum RunPhase {
 
 export enum RunResult {
   CheckpointCreated = 'checkpoint.created',
-  ContractGenerated = 'contract.generated',
   ImplementationGenerated = 'implementation.generated',
   IntegrateAlreadyIntegrated = 'integrate.already_integrated',
   IntegrateCompleted = 'integrate.completed',
@@ -42,7 +41,6 @@ export enum RunResult {
 
 export enum RunArtifactKind {
   CheckpointResult = 'checkpoint_result',
-  Contract = 'contract',
   Implementation = 'implementation',
   IntegrateResult = 'integrate_result',
   ReviewResult = 'review_result',
@@ -66,7 +64,6 @@ export function createRunDirectProgram(deps: {
     verifyCommands: deps.verifyCommands,
     workspaceRoot: deps.workspaceRoot,
     artifactKinds: {
-      contract: RunArtifactKind.Contract,
       implementation: RunArtifactKind.Implementation,
       integrateResult: RunArtifactKind.IntegrateResult,
       reviewResult: RunArtifactKind.ReviewResult,
@@ -74,25 +71,11 @@ export function createRunDirectProgram(deps: {
     },
   })
 
-  return sequence(
+  return createWorkflowProgram(
     [
-      action(RunPhase.Contract, {
+      {
+        name: RunPhase.Implement,
         async run(ctx) {
-          const artifact = await steps.contract(ctx.subjectId, {
-            attempt: ctx.state.iteration,
-            lastFindings: [],
-          })
-          return {
-            artifact,
-            result: { kind: RunResult.ContractGenerated },
-          }
-        },
-      }),
-      action(RunPhase.Implement, {
-        async run(ctx) {
-          const contractArtifact = ctx.artifacts.get<ContractPayload>(
-            RunArtifactKind.Contract,
-          )
           const reviewArtifact = ctx.artifacts.get<ReviewPayload>(
             RunArtifactKind.ReviewResult,
           )
@@ -100,15 +83,15 @@ export function createRunDirectProgram(deps: {
           const artifact = await steps.implement(ctx.subjectId, {
             attempt: ctx.state.iteration,
             lastFindings,
-            prompt: contractArtifact!.payload.prompt,
           })
           return {
             artifact,
             result: { kind: RunResult.ImplementationGenerated },
           }
         },
-      }),
-      action(RunPhase.Verify, {
+      },
+      {
+        name: RunPhase.Verify,
         async run(ctx) {
           const artifact = await steps.verify(ctx.subjectId)
           const allPassed = artifact.payload.checks.every(
@@ -121,8 +104,9 @@ export function createRunDirectProgram(deps: {
             },
           }
         },
-      }),
-      action(RunPhase.Review, {
+      },
+      {
+        name: RunPhase.Review,
         async run(ctx) {
           const implArtifact = ctx.artifacts.get<ImplementPayload>(
             RunArtifactKind.Implementation,
@@ -145,8 +129,9 @@ export function createRunDirectProgram(deps: {
                 : RunResult.ReviewRejected
           return { artifact, result: { kind } }
         },
-      }),
-      action(RunPhase.Integrate, {
+      },
+      {
+        name: RunPhase.Integrate,
         async run(ctx) {
           const artifact = await steps.integrate(ctx.subjectId)
           return {
@@ -154,16 +139,9 @@ export function createRunDirectProgram(deps: {
             result: { kind: RunResult.IntegrateCompleted },
           }
         },
-      }),
+      },
     ],
     {
-      [RunPhase.Contract]: {
-        [KernelResultKind.Error]: onError(RunPhase.Contract),
-        [RunResult.ContractGenerated]: {
-          nextPhase: RunPhase.Implement,
-          status: TaskStatus.Running,
-        },
-      },
       [RunPhase.Implement]: {
         [KernelResultKind.Error]: onError(RunPhase.Implement),
         [RunResult.ImplementationGenerated]: {

@@ -1,6 +1,4 @@
-import type { ImplementOutput, ReviewFinding } from '../types'
-
-export type TaskSourceName = string
+export type TaskSourceName = 'openspec' | 'spec-kit'
 
 export interface TaskPrompt {
   instructions: string[]
@@ -13,22 +11,9 @@ export interface TaskPrompt {
 export interface TaskSourceSession {
   applyTaskCompletion: (taskHandle: string) => Promise<void>
   buildCommitSubject: (taskHandle: string) => string
-  buildImplementPrompt: (input: {
-    attempt: number
-    generation: number
-    lastFindings: ReviewFinding[]
-    taskHandle: string
-  }) => Promise<TaskPrompt>
-  buildReviewPrompt: (input: {
-    actualChangedFiles: string[]
-    attempt: number
-    generation: number
-    implement: ImplementOutput
-    lastFindings: ReviewFinding[]
-    taskHandle: string
-  }) => Promise<TaskPrompt>
+  buildImplementPrompt: (taskHandle: string) => Promise<TaskPrompt>
+  buildReviewPrompt: (taskHandle: string) => Promise<TaskPrompt>
   getCompletionCriteria: (taskHandle: string) => Promise<string[]>
-  getTaskDependencies: (taskHandle: string) => string[]
   isTaskCompleted: (taskHandle: string) => Promise<boolean>
   listTasks: () => string[]
   resolveTaskSelector: (selector: string) => string

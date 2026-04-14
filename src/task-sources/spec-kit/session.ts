@@ -133,23 +133,18 @@ export function createSpecKitSession(
       const task = getTask(taskHandle)
       return `Task ${task.id}: ${task.title}`
     },
-    async buildImplementPrompt(args) {
-      const task = getTask(args.taskHandle)
+    async buildImplementPrompt(taskHandle: string) {
+      const task = getTask(taskHandle)
       const docs = await loadSharedDocs()
       return createImplementPrompt(task, docs)
     },
-    async buildReviewPrompt(args) {
-      const task = getTask(args.taskHandle)
+    async buildReviewPrompt(taskHandle: string) {
+      const task = getTask(taskHandle)
       const docs = await loadSharedDocs()
-      void args
       return createReviewPrompt(task, docs)
     },
     async getCompletionCriteria(taskHandle: string) {
       return [getTask(taskHandle).title]
-    },
-    getTaskDependencies(taskHandle: string) {
-      void taskHandle
-      return []
     },
     async isTaskCompleted(taskHandle: string) {
       const tasksMd = await readRequiredTextFile(tasksPath)

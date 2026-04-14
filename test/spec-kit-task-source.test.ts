@@ -41,8 +41,6 @@ test('spec-kit source parses raw generated tasks without enhanced fields', async
   })
 
   expect(session.listTasks()).toEqual(['T001', 'T002', 'T003'])
-  expect(session.getTaskDependencies('T001')).toEqual([])
-  expect(session.getTaskDependencies('T002')).toEqual([])
   expect(await session.getCompletionCriteria('T001')).toEqual([
     'Add the failing contract test that executes the named verification commands and proves default exclusion of test:perf and test:live-smoke from pnpm test in tests/contract/test-commands.test.ts',
   ])
@@ -50,12 +48,7 @@ test('spec-kit source parses raw generated tasks without enhanced fields', async
     'Task T003: Add the reserved-command guidance for test:perf and the no-live-provider guard note for test:live-smoke in tests/perf/README.md and tests/live-smoke/README.md',
   )
 
-  const prompt = await session.buildImplementPrompt({
-    attempt: 1,
-    generation: 1,
-    lastFindings: [],
-    taskHandle: 'T001',
-  })
+  const prompt = await session.buildImplementPrompt('T001')
 
   expect(prompt.sections).toContainEqual({
     title: 'Task',

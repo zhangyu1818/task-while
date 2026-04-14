@@ -10,7 +10,6 @@ import {
   trackedFilesInHead,
 } from './command-test-helpers'
 
-import type { RuntimePorts } from '../src/core/runtime'
 import type { AgentInvocation, AgentPort } from '../src/ports/agent'
 import type { ImplementOutput, ReviewOutput } from '../src/types'
 
@@ -31,6 +30,10 @@ function extractChangedFiles(prompt: string): string[] {
   }
 }
 
+function isReviewPrompt(prompt: string) {
+  return prompt.includes('Actual Changed Files:')
+}
+
 interface ScriptedAgentContext {
   implementHandler: (taskHandle: string) => Promise<void>
   implementInputs: string[]
@@ -46,7 +49,7 @@ function createScriptedAgentPort(ctx: ScriptedAgentContext): AgentPort {
     name: 'scripted',
     async execute(invocation: AgentInvocation): Promise<unknown> {
       const taskHandle = extractTaskHandle(invocation.prompt)
-      if (invocation.role === 'implementer') {
+      if (!isReviewPrompt(invocation.prompt)) {
         ctx.implementInputs.push(taskHandle)
         await ctx.implementHandler(taskHandle)
         const result: ImplementOutput = {
@@ -60,12 +63,10 @@ function createScriptedAgentPort(ctx: ScriptedAgentContext): AgentPort {
         }
         return result
       }
-      if (invocation.role === 'reviewer') {
-        const changedFiles = extractChangedFiles(invocation.prompt)
-        ctx.reviewInputs.push({ actualChangedFiles: changedFiles, taskHandle })
-        return ctx.reviewHandler(taskHandle, changedFiles)
-      }
-      throw new Error(`Unknown role: ${invocation.role}`)
+
+      const changedFiles = extractChangedFiles(invocation.prompt)
+      ctx.reviewInputs.push({ actualChangedFiles: changedFiles, taskHandle })
+      return ctx.reviewHandler(taskHandle, changedFiles)
     },
   }
 }
@@ -84,31 +85,29 @@ function createPassingReview(taskHandle: string): ReviewOutput {
 }
 
 const mockState = vi.hoisted(() => ({
-  portOverrides: [] as ((real: RuntimePorts) => RuntimePorts)[],
+  agents: [] as AgentPort[],
+  createAgentPort: vi.fn(() => {
+    const agent = mockState.agents.shift()
+    if (!agent) {
+      throw new Error('Missing scripted agent')
+    }
+    return agent
+  }),
 }))
 
-vi.mock('../src/core/create-runtime-ports', async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import('../src/core/create-runtime-ports')>()
+vi.mock('../src/ports/agent', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/ports/agent')>()
   return {
     ...original,
-    createRuntimePorts: vi.fn(
-      (...args: Parameters<typeof original.createRuntimePorts>) => {
-        const real = original.createRuntimePorts(...args)
-        const override = mockState.portOverrides.shift()
-        if (!override) {
-          return real
-        }
-        return override(real)
-      },
-    ),
+    createAgentPort: mockState.createAgentPort,
   }
 })
 
 const { runCommand } = await import('../src/commands/run')
 
 beforeEach(() => {
-  mockState.portOverrides = []
+  mockState.agents = []
+  mockState.createAgentPort.mockClear()
 })
 
 function setupScriptedAgent(opts: {
@@ -126,11 +125,7 @@ function setupScriptedAgent(opts: {
       opts.reviewHandler ??
       ((handle) => Promise.resolve(createPassingReview(handle))),
   }
-  const agent = createScriptedAgentPort(ctx)
-  mockState.portOverrides.push((real) => ({
-    ...real,
-    resolveAgent: () => agent,
-  }))
+  mockState.agents.push(createScriptedAgentPort(ctx))
   return ctx
 }
 

@@ -6,7 +6,6 @@ test('buildReviewerPrompt keeps review context path-only', async () => {
   const prompt = await buildReviewerPrompt({
     actualChangedFiles: ['src/parser.ts'],
     attempt: 2,
-    generation: 3,
     taskHandle: 'T001',
     implement: {
       assumptions: [],
@@ -51,7 +50,6 @@ test('buildReviewerPrompt keeps review context path-only', async () => {
   expect(prompt).toMatch(/# plan/)
   expect(prompt).toMatch(/Task Handle: T001/)
   expect(prompt).toContain('Attempt:\n2')
-  expect(prompt).toContain('Generation:\n3')
   expect(prompt).toContain('Previous Findings:')
   expect(prompt).toContain('"file":"src/parser.ts"')
   expect(prompt).toContain('Actual Changed Files:')

@@ -68,7 +68,6 @@ test('ClaudeAgentClient.implement passes prompt and outputFormat to query and re
 
   const result = await client.implement({
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     taskHandle: 'T001',
     prompt: createTaskPrompt({
@@ -117,7 +116,6 @@ test('ClaudeAgentClient.review passes prompt and outputFormat to query and retur
   const result = await client.review({
     actualChangedFiles: ['src/a.ts'],
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     prompt: createTaskPrompt(),
     taskHandle: 'T001',
@@ -148,7 +146,6 @@ test('ClaudeAgentClient passes configured model and effort defaults to query opt
 
   await client.implement({
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     prompt: createTaskPrompt(),
     taskHandle: 'T001',
@@ -182,7 +179,6 @@ test('ClaudeAgentClient throws when query returns error result', async () => {
   await expect(
     client.implement({
       attempt: 1,
-      generation: 1,
       lastFindings: [],
       prompt: createTaskPrompt(),
       taskHandle: 'T001',
@@ -207,7 +203,6 @@ test('ClaudeAgentClient throws when query returns no structured output', async (
   await expect(
     client.implement({
       attempt: 1,
-      generation: 1,
       lastFindings: [],
       prompt: createTaskPrompt(),
       taskHandle: 'T001',
@@ -225,7 +220,6 @@ test('ClaudeAgentClient throws when query yields no messages', async () => {
   await expect(
     client.implement({
       attempt: 1,
-      generation: 1,
       lastFindings: [],
       prompt: createTaskPrompt(),
       taskHandle: 'T001',
@@ -242,7 +236,6 @@ test('ClaudeAgentClient sets includePartialMessages only when onEvent is provide
 
   await client.implement({
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     prompt: createTaskPrompt(),
     taskHandle: 'T001',

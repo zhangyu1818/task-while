@@ -8,15 +8,11 @@ import { z } from 'zod'
 import { createFsHarnessStore } from '../adapters/fs/harness-store'
 import { loadBatchConfig, type BatchConfig } from '../batch/config'
 import { discoverBatchFiles } from '../batch/discovery'
-import {
-  createBatchStructuredOutputProvider,
-  type BatchStructuredOutputProvider,
-} from '../batch/provider'
 import { runKernel } from '../harness/kernel'
+import { createAgentPort } from '../ports/agent'
 import { createBatchProgram } from '../programs/batch'
-import { createRuntimePaths } from '../runtime/path-layout'
 import { createBatchRetryScheduler } from '../schedulers/scheduler'
-import { parseWithSchema } from '../schema/shared'
+import { parseWithSchema } from '../schema'
 import { runSession, SessionEventType } from '../session/session'
 import { writeJsonAtomic } from '../utils/fs'
 
@@ -92,26 +88,8 @@ async function loadBatchResults(filePath: string) {
   return parseWithSchema(batchResultsSchema, value)
 }
 
-function createProvider(
-  config: BatchConfig,
-  verbose: boolean | undefined,
-): BatchStructuredOutputProvider {
-  if (config.provider === 'codex') {
-    return createBatchStructuredOutputProvider({
-      provider: 'codex',
-      ...(config.effort ? { effort: config.effort } : {}),
-      ...(config.model ? { model: config.model } : {}),
-      ...(config.timeout ? { timeout: config.timeout } : {}),
-      ...(verbose === undefined ? {} : { verbose }),
-      workspaceRoot: config.configDir,
-    })
-  }
-
-  return createBatchStructuredOutputProvider({
-    provider: 'claude',
-    ...(config.effort ? { effort: config.effort } : {}),
-    ...(config.model ? { model: config.model } : {}),
-    ...(config.timeout ? { timeout: config.timeout } : {}),
+function createBatchAgent(config: BatchConfig, verbose: boolean | undefined) {
+  return createAgentPort(config, {
     ...(verbose === undefined ? {} : { verbose }),
     workspaceRoot: config.configDir,
   })
@@ -147,18 +125,28 @@ export async function runBatchCommand(
   const results = await loadBatchResults(resultsPath)
   await writeJsonAtomic(resultsPath, results)
 
-  const provider = createProvider(config, input.verbose)
+  if (discoveredFiles.length === 0) {
+    return {
+      config,
+      failedFiles: [],
+      processedFiles: [],
+      results,
+      resultsFilePath: resultsPath,
+    }
+  }
+
+  const agent = createBatchAgent(config, input.verbose)
   const validateOutput = createOutputValidator(config.schema)
-  const harnessDir = createRuntimePaths(config.configDir).runtimeDir
+  const harnessDir = path.join(config.configDir, '.while')
   const store = createFsHarnessStore(harnessDir)
   const protocol = 'batch'
 
   const program = createBatchProgram({
+    agent,
     configDir: config.configDir,
     maxRetries: 3,
     outputSchema: config.schema,
     prompt: config.prompt,
-    provider,
     results,
     resultsPath,
     validateOutput,
@@ -178,7 +166,6 @@ export async function runBatchCommand(
   let suspendedCount = 0
 
   for await (const event of runSession({
-    config: {},
     scheduler,
     kernel: {
       run: (subjectId) =>

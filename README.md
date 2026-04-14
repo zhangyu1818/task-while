@@ -40,7 +40,7 @@ pnpm exec task-while run
 
 ## Configuration
 
-`while.yaml` configures the `run` workflow only. When it is absent, the CLI runs `task.source: spec-kit`, `task.maxIterations: 5`, and `workflow.mode: direct` with `codex` for both roles. Each workflow role accepts provider-specific `model`, `effort`, and optional `timeout` in milliseconds.
+`while.yaml` configures the `run` workflow only. When it is absent, the CLI runs `task.source: spec-kit`, `task.maxIterations: 5`, and `workflow.mode: direct` with `codex` for both roles. `task.source` currently accepts only `spec-kit` or `openspec`. Each workflow role accepts provider-specific `model`, `effort`, and optional `timeout` in milliseconds.
 
 ```yaml
 task:
@@ -66,10 +66,10 @@ Current status:
 - `workflow.roles.<role>.timeout` is optional and sets a per-turn timeout in milliseconds for local agent runs; valid values are positive integers up to `2147483647`
 - `codex` `effort` accepts `minimal`, `low`, `medium`, `high`, or `xhigh`
 - `claude` `effort` accepts `low`, `medium`, `high`, or `max`
-- `workflow.mode: direct` requires `implementer` and `reviewer` to use identical `model` and `effort` when they share the same provider
+- `workflow.mode: direct` requires `implementer` and `reviewer` to use identical `model`, `effort`, and `timeout` when they share the same provider
 - `workflow.mode: direct` uses a local reviewer
 - `workflow.mode: pull-request` pushes a task branch, polls GitHub PR review from `chatgpt-codex-connector[bot]`, then squash-merges on approval
-- in `workflow.mode: pull-request`, reviewer `provider` still selects the remote reviewer, but any local reviewer `model`, `effort`, and `timeout` values are ignored
+- in `workflow.mode: pull-request`, reviewer `provider` selects the remote reviewer; local reviewer `model`, `effort`, and `timeout` values are ignored and no local reviewer agent is initialized
 - `workflow.mode: pull-request` currently supports only `codex` as the remote reviewer provider
 - `task.maxIterations` uses the same configured limit for every task in the selected source session; run workflow retries share a single per-task budget across phases
 
@@ -130,8 +130,6 @@ cd /path/to/workspace
 pnpm exec task-while batch --config ./batch.yaml
 ```
 
-This repository also includes a repo-local skill at `skills/generate-batch-yaml/` for generating batch configs from natural-language requirements.
-
 Batch config example:
 
 ```yaml
@@ -168,21 +166,22 @@ Batch behavior:
 - batch `timeout` is an optional per-file timeout in milliseconds; valid values are positive integers up to `2147483647`
 - each run scans files under the `batch.yaml` directory and filters them by `glob`
 - structured results are written beside the YAML file in `results.json`
-- internal harness state is written under `.while/harness/` beside the YAML file
+- internal harness state is written under `.while/` beside the YAML file
 - result keys are relative to the directory that contains `batch.yaml`
 - `--verbose` streams batch-level progress and direct provider details to `stderr` during batch execution, including the current file, completion counts, Claude init/task/tool/result summaries, and Codex thinking, commands, MCP tools, file updates, todo changes, messages, and final usage
 - rerunning the command resumes unfinished work and skips files that already have accepted results
 - failed files are suspended and retried after all pending files are processed
 - file-level retries are limited by `maxRetries` (default 3); exhausted files are marked blocked
-- when `glob` matches no files, the command exits successfully without initializing a provider
+- when `glob` matches no files, the command exits successfully without initializing a local agent
 
 ## Task Lifecycle
 
-Each task follows this lifecycle:
+Each task follows an explicit phase sequence:
 
-1. The implement role receives a task-source-built prompt for the current task.
-2. The reviewer evaluates the task-source-built review prompt plus changed-file context and overall risk.
-3. If review is approved, `task-while` asks the task source to apply its completion marker, creates the final integration commit, and records integrate artifacts under `.while`.
+- `workflow.mode: direct` runs `implement -> verify -> review -> integrate`
+- `workflow.mode: pull-request` runs `implement -> verify -> checkpoint -> review -> integrate`
+
+Implementation and review prompts are rebuilt on demand from the task source for the current task. Runtime-only context such as retry findings, changed files, and implement output is added in the workflow prompt layer rather than being cached as a separate contract artifact.
 
 Completion requires all of the following:
 
@@ -191,6 +190,8 @@ Completion requires all of the following:
 - every acceptance check passing
 
 Review context uses `actualChangedFiles` derived from git diff against `HEAD`. In `pull-request` mode, changed-file context comes from the live PR snapshot instead of the local worktree diff.
+
+Run scheduling is source-order only: `task-while` executes tasks in the order returned by the selected task source. The built-in task sources do not expose a dependency-graph executor.
 
 In `pull-request` mode:
 
@@ -228,7 +229,7 @@ Example:
 Current built-in `spec-kit` behavior:
 
 - task ordering follows the order in `tasks.md`
-- explicit task dependencies are not extracted from raw task lines
+- explicit task dependencies are not extracted or scheduled; execution follows `tasks.md` order
 - implement/review prompts include the current task line, the current phase, `spec.md`, `plan.md`, and the full `tasks.md`
 - completion is still written back through `tasks.md` checkboxes
 
@@ -254,6 +255,7 @@ Current built-in `openspec` behavior:
 
 - `--feature` maps to `openspec/changes/<change>`
 - stable task handles come from explicit numbering in `tasks.md`, such as `1.1` and `2.3`
+- execution follows the task order in `tasks.md`; there is no dependency graph layer for built-in OpenSpec changes
 - implement/review prompts include the current task, task group, `proposal.md`, `design.md`, expanded `specs/**/*.md`, full `tasks.md`, and the OpenSpec apply instruction/state/progress
 - completion is still written by `task-while` after review/integrate success; it does not adopt `/opsx:apply`'s immediate checkbox update behavior
 - `task-while` consumes OpenSpec artifacts and CLI JSON, but it does not run `/opsx:propose`
@@ -274,7 +276,7 @@ Its contract with the selected task source is simple:
 - the task source parses source artifacts and provides prompts plus completion operations
 - the harness runtime drives implement, review, integrate, and persistence around that protocol
 
-The standalone `batch` command is separate from this contract. It does not use task sources, task graphs, review/integrate stages, or git-first completion.
+The standalone `batch` command is separate from this contract. It does not use task sources, run-task queue scheduling, review/integrate stages, or git-first completion.
 
 ## Architecture
 
@@ -282,17 +284,18 @@ The standalone `batch` command is separate from this contract. It does not use t
 
 - **TaskState** per subject is the single source of truth, written atomically as JSON
 - **Transition log** (append-only JSONL) records phase transitions for debugging
-- **Artifacts** store large structured outputs (contracts, reviews, implementations) separately
-- A **pure kernel interpreter** executes typed workflow programs (action/gate/branch nodes + declarative transition tables)
+- **Artifacts** store large structured outputs (implementations, reviews, checkpoints, integrate results) separately
+- A **pure kernel interpreter** executes action-only workflow programs driven by declarative transition tables
 - A **session layer** drives multi-subject scheduling via pluggable schedulers
-- All external effects flow through unified **ports** (AgentPort, CodeHostPort, GitPort)
+- All external effects flow through explicit **ports** (AgentPort, GitHubPort, GitPort)
+- `run` and `batch` both create the same local structured `AgentPort` at the command boundary; programs only consume that port and keep prompt construction in the workflow/program layer
 
 ## Runtime Layout
 
 `run` keeps runtime state under:
 
 ```text
-<source-entry>/<id>/.while/harness/
+<source-entry>/<id>/.while/
   state/<protocol>/<subject-id>.json         — TaskState per subject (truth)
   transitions/<protocol>/<subject-id>.jsonl  — TransitionRecord log (debug)
   artifacts/<protocol>/<subject-id>/*.json   — Artifact per kind/iteration
@@ -306,7 +309,7 @@ The standalone `batch` command is separate from this contract. It does not use t
 <config-dir>/
 ├── batch.yaml
 ├── results.json
-└── .while/harness/
+└── .while/
     ├── state/batch/*.json
     ├── transitions/batch/*.jsonl
     └── artifacts/batch/...
@@ -321,7 +324,6 @@ Before publishing:
 ```bash
 pnpm lint
 pnpm typecheck
-AI_AGENT=1 pnpm test
-AI_AGENT=1 pnpm tsx fixtures/smoke/codex-e2e.ts
+pnpm test
 npm pack --dry-run
 ```

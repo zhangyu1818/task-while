@@ -128,22 +128,7 @@ test('openspec source includes the apply instruction text in the review prompt',
     featureId: fixture.changeId,
     workspaceRoot: fixture.root,
   })
-  const prompt = await session.buildReviewPrompt({
-    actualChangedFiles: [],
-    attempt: 1,
-    generation: 1,
-    lastFindings: [],
-    taskHandle: '1.1',
-    implement: {
-      assumptions: [],
-      needsHumanAttention: false,
-      notes: [],
-      status: 'implemented',
-      summary: 'done',
-      taskHandle: '1.1',
-      unresolvedItems: [],
-    },
-  })
+  const prompt = await session.buildReviewPrompt('1.1')
 
   expect(prompt.instructions).toContain(
     'Review only passes when the config parser preserves declared job order.',

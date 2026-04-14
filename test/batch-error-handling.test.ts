@@ -4,30 +4,35 @@ import path from 'node:path'
 
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
-import type {
-  BatchFileInput,
-  BatchStructuredOutputProvider,
-} from '../src/batch/provider'
+import type { AgentInvocation, AgentPort } from '../src/ports/agent'
 
-const providerState = vi.hoisted(() => ({
-  inputs: [] as BatchFileInput[],
-  provider: null as BatchStructuredOutputProvider | null,
+const agentState = vi.hoisted(() => ({
+  agent: null as AgentPort | null,
+  invocations: [] as AgentInvocation[],
+  createAgentPort: vi.fn(() => {
+    if (!agentState.agent) {
+      throw new Error('Missing batch agent')
+    }
+    return agentState.agent
+  }),
 }))
 
-vi.mock('../src/batch/provider', () => {
+vi.mock('../src/ports/agent', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/ports/agent')>()
   return {
-    createBatchStructuredOutputProvider: vi.fn(() => {
-      if (!providerState.provider) {
-        throw new Error('Missing batch structured output provider')
-      }
-      return providerState.provider
-    }),
+    ...original,
+    createAgentPort: agentState.createAgentPort,
   }
 })
 
 const { runBatchCommand } = await import('../src/commands/batch')
 
 const workspaces: string[] = []
+
+function extractFilePath(prompt: string) {
+  const match = prompt.match(/File path: (.+)(?:\n|$)/)
+  return match?.[1] ?? ''
+}
 
 async function createWorkspace() {
   const root = await mkdtemp(path.join(tmpdir(), 'while-batch-error-'))
@@ -67,8 +72,9 @@ afterEach(async () => {
 })
 
 beforeEach(() => {
-  providerState.inputs = []
-  providerState.provider = null
+  agentState.agent = null
+  agentState.createAgentPort.mockClear()
+  agentState.invocations = []
 })
 
 test('runBatchCommand blocks files with broken symlinks (prepare errors)', async () => {
@@ -82,11 +88,11 @@ test('runBatchCommand blocks files with broken symlinks (prepare errors)', async
   await writeFile(path.join(inputDir, 'b.txt'), 'beta\n')
   const configPath = await writeConfig(root)
 
-  providerState.provider = {
+  agentState.agent = {
     name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
-      return { summary: input.filePath }
+    async execute(invocation) {
+      agentState.invocations.push(invocation)
+      return { summary: extractFilePath(invocation.prompt) }
     },
   }
 

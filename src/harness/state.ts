@@ -33,8 +33,7 @@ export interface Artifact<TPayload = unknown> {
   timestamp: string
 }
 
-export function createInitialState(subjectId: string): TaskState {
-  void subjectId
+export function createInitialState(): TaskState {
   return {
     artifacts: {},
     completedAt: null,

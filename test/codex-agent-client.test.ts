@@ -65,7 +65,6 @@ test('CodexAgentClient passes workspaceRoot and structured output schema to SDK 
 
   const result = await client.implement({
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     taskHandle: 'T001',
     prompt: createTaskPrompt({
@@ -134,7 +133,6 @@ test('CodexAgentClient creates a fresh thread for each role invocation', async (
 
   await client.implement({
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     prompt: createTaskPrompt(),
     taskHandle: 'T001',
@@ -142,7 +140,6 @@ test('CodexAgentClient creates a fresh thread for each role invocation', async (
   await client.review({
     actualChangedFiles: ['src/a.ts'],
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     prompt: createTaskPrompt(),
     taskHandle: 'T001',

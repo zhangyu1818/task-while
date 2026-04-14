@@ -1,7 +1,0 @@
-interface:
-  display_name: 'Generate Batch YAML'
-  short_description: 'Create a runnable task-while batch config'
-  default_prompt: 'Use $generate-batch-yaml to turn my requirement into a local task-while batch YAML file.'
-
-policy:
-  allow_implicit_invocation: true

@@ -1,5 +1,4 @@
-import type { GitPort } from '../core/runtime'
-import type { CodeHostPort } from '../ports/code-host'
+import type { GitHubPort, GitPort } from '../core/runtime'
 import type { TaskSourceSession } from '../task-sources/types'
 
 export const sleep = (ms: number) =>
@@ -38,13 +37,13 @@ export async function ensureTaskBranch(
 }
 
 export async function runPrCheckpoint(
-  ports: { codeHost: CodeHostPort; git: GitPort },
+  ports: { git: GitPort; github: GitHubPort },
   taskSource: TaskSourceSession,
   input: { iteration: number; subjectId: string },
 ): Promise<{ checkpointStartedAt: string; prNumber: number }> {
   const commitSubject = taskSource.buildCommitSubject(input.subjectId)
   const branchName = toTaskBranchName(commitSubject)
-  const existingPr = await ports.codeHost.findOpenPullRequestByHeadBranch({
+  const existingPr = await ports.github.findOpenPullRequestByHeadBranch({
     headBranch: branchName,
   })
 
@@ -60,7 +59,7 @@ export async function runPrCheckpoint(
 
   let pullRequest = existingPr
   if (!pullRequest) {
-    pullRequest = await ports.codeHost.createPullRequest({
+    pullRequest = await ports.github.createPullRequest({
       baseBranch: 'main',
       body: `Task: ${commitSubject}\nManaged by task-while.`,
       headBranch: branchName,

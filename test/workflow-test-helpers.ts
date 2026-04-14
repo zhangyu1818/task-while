@@ -4,12 +4,12 @@ import { FakeGit } from './workflow-runtime-doubles'
 import {
   InMemoryTaskSource,
   InMemoryWorkspace,
+  type TestTaskGraph,
 } from './workflow-task-source-doubles'
 
 import type { OrchestratorRuntime } from '../src/core/runtime'
-import type { TaskGraph } from '../src/types'
 
-export function createGraph(): TaskGraph {
+export function createGraph(): TestTaskGraph {
   return {
     featureId: '001-demo',
     maxIterations: 5,

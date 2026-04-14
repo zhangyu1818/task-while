@@ -4,30 +4,35 @@ import path from 'node:path'
 
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
-import type {
-  BatchFileInput,
-  BatchStructuredOutputProvider,
-} from '../src/batch/provider'
+import type { AgentInvocation, AgentPort } from '../src/ports/agent'
 
-const providerState = vi.hoisted(() => ({
-  inputs: [] as BatchFileInput[],
-  provider: null as BatchStructuredOutputProvider | null,
+const agentState = vi.hoisted(() => ({
+  agent: null as AgentPort | null,
+  invocations: [] as AgentInvocation[],
+  createAgentPort: vi.fn(() => {
+    if (!agentState.agent) {
+      throw new Error('Missing batch agent')
+    }
+    return agentState.agent
+  }),
 }))
 
-vi.mock('../src/batch/provider', () => {
+vi.mock('../src/ports/agent', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/ports/agent')>()
   return {
-    createBatchStructuredOutputProvider: vi.fn(() => {
-      if (!providerState.provider) {
-        throw new Error('Missing batch structured output provider')
-      }
-      return providerState.provider
-    }),
+    ...original,
+    createAgentPort: agentState.createAgentPort,
   }
 })
 
 const { runBatchCommand } = await import('../src/commands/batch')
 
 const workspaces: string[] = []
+
+function extractFilePath(prompt: string) {
+  const match = prompt.match(/File path: (.+)(?:\n|$)/)
+  return match?.[1] ?? ''
+}
 
 async function createWorkspace() {
   const root = await mkdtemp(path.join(tmpdir(), 'while-batch-command-'))
@@ -67,8 +72,9 @@ afterEach(async () => {
 })
 
 beforeEach(() => {
-  providerState.inputs = []
-  providerState.provider = null
+  agentState.agent = null
+  agentState.createAgentPort.mockClear()
+  agentState.invocations = []
 })
 
 test('runBatchCommand retries files that throw and eventually succeeds', async () => {
@@ -79,16 +85,16 @@ test('runBatchCommand retries files that throw and eventually succeeds', async (
   const configPath = await writeConfig(root)
   let attemptCount = 0
 
-  providerState.provider = {
+  agentState.agent = {
     name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
+    async execute(invocation) {
+      agentState.invocations.push(invocation)
       attemptCount += 1
       if (attemptCount === 1) {
         throw new Error('transient error')
       }
       return {
-        summary: input.filePath,
+        summary: extractFilePath(invocation.prompt),
       }
     },
   }
@@ -98,6 +104,7 @@ test('runBatchCommand retries files that throw and eventually succeeds', async (
     cwd: root,
   })
 
+  expect(agentState.invocations).toHaveLength(2)
   expect(result.processedFiles).toEqual(['input/a.txt'])
   expect(result.failedFiles).toEqual([])
 })
@@ -109,10 +116,10 @@ test('runBatchCommand blocks files that permanently fail after max retries', asy
   await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
   const configPath = await writeConfig(root)
 
-  providerState.provider = {
+  agentState.agent = {
     name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
+    async execute(invocation) {
+      agentState.invocations.push(invocation)
       throw new Error('permanent error')
     },
   }
@@ -122,6 +129,7 @@ test('runBatchCommand blocks files that permanently fail after max retries', asy
     cwd: root,
   })
 
+  expect(agentState.invocations).toHaveLength(3)
   expect(result.processedFiles).toEqual([])
   expect(result.failedFiles).toEqual(['input/a.txt'])
 })

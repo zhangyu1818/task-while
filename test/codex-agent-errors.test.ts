@@ -44,7 +44,6 @@ test('CodexAgentClient throws when SDK returns empty finalResponse in non-stream
   await expect(
     client.implement({
       attempt: 1,
-      generation: 1,
       lastFindings: [],
       prompt: createTaskPrompt(),
       taskHandle: 'T001',
@@ -72,7 +71,6 @@ test('CodexAgentClient throws when SDK returns non-JSON finalResponse in non-str
   await expect(
     client.implement({
       attempt: 1,
-      generation: 1,
       lastFindings: [],
       prompt: createTaskPrompt(),
       taskHandle: 'T001',
@@ -118,7 +116,6 @@ test('CodexAgentClient surfaces streamed agent failures before any structured re
   await expect(
     client.implement({
       attempt: 1,
-      generation: 1,
       lastFindings: [],
       prompt: createTaskPrompt(),
       taskHandle: 'T001',
@@ -164,7 +161,6 @@ test('CodexAgentClient throws when streamed mode completes without any final age
   await expect(
     client.implement({
       attempt: 1,
-      generation: 1,
       lastFindings: [],
       prompt: createTaskPrompt(),
       taskHandle: 'T001',

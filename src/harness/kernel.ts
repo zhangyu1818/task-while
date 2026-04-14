@@ -4,23 +4,19 @@ import {
   type Artifact,
   type TaskState,
 } from './state'
-import {
-  WorkflowNodeType,
-  type DomainResult,
-  type Transition,
-  type TransitionRule,
-  type TypedArtifactMap,
-  type WorkflowContext,
-  type WorkflowNode,
-  type WorkflowProgram,
-} from './workflow-program'
 
 import type { HarnessStore } from './store'
+import type {
+  DomainResult,
+  Transition,
+  TransitionRule,
+  TypedArtifactMap,
+  WorkflowContext,
+  WorkflowProgram,
+} from './workflow-program'
 
 export enum KernelResultKind {
   Error = 'error',
-  GateFail = 'gate.fail',
-  GatePass = 'gate.pass',
 }
 
 export function retryBudgetReached(state: TaskState, maxIterations: number) {
@@ -49,8 +45,7 @@ export async function runKernel(input: {
   const { config, program, protocol, store, subjectId } = input
 
   let state =
-    (await store.loadState(protocol, subjectId)) ??
-    createInitialState(subjectId)
+    (await store.loadState(protocol, subjectId)) ?? createInitialState()
 
   if (
     state.status === TaskStatus.Done ||
@@ -88,48 +83,9 @@ export async function runKernel(input: {
   let current: null | string = state.currentPhase ?? program.entry
 
   while (current) {
-    const node: undefined | WorkflowNode = program.nodes[current]
+    const node = program.nodes[current]
     if (!node) {
       throw new Error(`unknown node: ${current}`)
-    }
-
-    if (node.type === WorkflowNodeType.Gate) {
-      const ctx: WorkflowContext = { artifacts, config, state, subjectId }
-      const passed: boolean = await node.test(ctx)
-      const nextPhase: string = passed ? node.then : node.otherwise
-
-      await store.appendTransition(protocol, subjectId, {
-        nextPhase,
-        phase: current,
-        status: state.status,
-        timestamp: new Date().toISOString(),
-        resultKind: passed
-          ? KernelResultKind.GatePass
-          : KernelResultKind.GateFail,
-      })
-
-      current = nextPhase
-      continue
-    }
-
-    if (node.type === WorkflowNodeType.Branch) {
-      const ctx: WorkflowContext = { artifacts, config, state, subjectId }
-      const decision = await node.decide(ctx)
-      const nextPhase: string | undefined = node.paths[decision]
-      if (!nextPhase) {
-        throw new Error(`branch "${current}" has no path for "${decision}"`)
-      }
-
-      await store.appendTransition(protocol, subjectId, {
-        nextPhase,
-        phase: current,
-        resultKind: `branch.${decision}`,
-        status: state.status,
-        timestamp: new Date().toISOString(),
-      })
-
-      current = nextPhase
-      continue
     }
 
     const phaseCount = (state.phaseIterations[current] ?? 0) + 1

@@ -15,16 +15,6 @@ import type { AgentPort } from '../ports/agent'
 import type { TaskSourceSession } from '../task-sources/types'
 import type { ImplementOutput, ReviewFinding } from '../types'
 
-export interface TaskPrompt {
-  instructions: string[]
-  sections: { content: string; title: string }[]
-}
-
-export interface ContractPayload {
-  completionCriteria: string[]
-  prompt: TaskPrompt
-}
-
 export type ImplementPayload = ImplementOutput
 
 export interface IntegratePayload {
@@ -52,16 +42,11 @@ export interface RuntimePorts {
 }
 
 export interface SharedSteps {
-  contract: (
-    subjectId: string,
-    input: { attempt: number; lastFindings: ReviewFinding[] },
-  ) => Promise<Artifact<ContractPayload>>
   implement: (
     subjectId: string,
     input: {
       attempt: number
       lastFindings: ReviewFinding[]
-      prompt: TaskPrompt
     },
   ) => Promise<Artifact<ImplementPayload>>
   integrate: (subjectId: string) => Promise<Artifact<IntegratePayload>>
@@ -76,7 +61,7 @@ export interface SharedSteps {
   verify: (subjectId: string) => Promise<Artifact<VerifyPayload>>
 }
 
-function makeArtifact<T>(
+export function makeArtifact<T>(
   kind: string,
   subjectId: string,
   payload: T,
@@ -92,7 +77,6 @@ function makeArtifact<T>(
 
 export function createSharedSteps(deps: {
   artifactKinds: {
-    contract: string
     implementation: string
     integrateResult: string
     reviewResult: string
@@ -100,7 +84,7 @@ export function createSharedSteps(deps: {
   }
   implementer: AgentPort
   ports: RuntimePorts
-  reviewer: AgentPort
+  reviewer?: AgentPort
   verifyCommands: string[]
   workspaceRoot: string
 }): SharedSteps {
@@ -114,37 +98,17 @@ export function createSharedSteps(deps: {
   } = deps
 
   return {
-    async contract(subjectId, input) {
-      const prompt = await ports.taskSource.buildImplementPrompt({
-        attempt: input.attempt,
-        generation: 1,
-        lastFindings: input.lastFindings,
-        taskHandle: subjectId,
-      })
-      const completionCriteria =
-        await ports.taskSource.getCompletionCriteria(subjectId)
-      const payload: ContractPayload = {
-        completionCriteria,
-        prompt: {
-          instructions: prompt.instructions,
-          sections: prompt.sections,
-        },
-      }
-      return makeArtifact(artifactKinds.contract, subjectId, payload)
-    },
-
     async implement(subjectId, input) {
+      const prompt = await ports.taskSource.buildImplementPrompt(subjectId)
       const promptText = await buildImplementerPrompt({
         attempt: input.attempt,
-        generation: 1,
         lastFindings: input.lastFindings,
-        prompt: input.prompt,
+        prompt,
         taskHandle: subjectId,
       })
       const raw = await implementer.execute({
         outputSchema: implementOutputSchema,
         prompt: promptText,
-        role: 'implementer',
       })
       const validated = validateImplementOutput(raw)
       return makeArtifact(artifactKinds.implementation, subjectId, validated)
@@ -184,27 +148,21 @@ export function createSharedSteps(deps: {
         taskHandle: subjectId,
         unresolvedItems: input.implement.unresolvedItems,
       }
-      const prompt = await ports.taskSource.buildReviewPrompt({
-        actualChangedFiles: changedFiles,
-        attempt: input.attempt,
-        generation: 1,
-        implement: implementOutput,
-        lastFindings: input.lastFindings,
-        taskHandle: subjectId,
-      })
+      const prompt = await ports.taskSource.buildReviewPrompt(subjectId)
       const promptText = await buildReviewerPrompt({
         actualChangedFiles: changedFiles,
         attempt: input.attempt,
-        generation: 1,
         implement: implementOutput,
         lastFindings: input.lastFindings,
         prompt,
         taskHandle: subjectId,
       })
+      if (!reviewer) {
+        throw new Error('review step requires a reviewer agent')
+      }
       const raw = await reviewer.execute({
         outputSchema: reviewOutputSchema,
         prompt: promptText,
-        role: 'reviewer',
       })
       const validated = validateReviewOutput(raw)
       const verdict =

@@ -1,5 +1,3 @@
-import type { AgentPort } from '../ports/agent'
-import type { CodeHostPort } from '../ports/code-host'
 import type { TaskSourceSession } from '../task-sources/types'
 
 export interface GitCheckoutBranchOptions {
@@ -134,22 +132,8 @@ export interface SquashMergePullRequestInput {
   subject: string
 }
 
-export interface AgentRoleConfig {
-  effort?: string | undefined
-  model?: string | undefined
-  provider: 'claude' | 'codex'
-  timeout?: number | undefined
-}
-
 export interface OrchestratorRuntime {
   git: GitPort
   github: GitHubPort
-  taskSource: TaskSourceSession
-}
-
-export interface RuntimePorts {
-  codeHost: CodeHostPort
-  git: GitPort
-  resolveAgent: (role: AgentRoleConfig) => AgentPort
   taskSource: TaskSourceSession
 }

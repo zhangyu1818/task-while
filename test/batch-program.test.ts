@@ -2,19 +2,19 @@ import { describe, expect, test, vi } from 'vitest'
 
 import { TaskStatus, type Artifact, type TaskState } from '../src/harness/state'
 import {
-  WorkflowNodeType,
-  type ActionNode,
-  type DomainResult,
-  type TransitionRule,
-  type TypedArtifactMap,
-  type WorkflowNode,
-} from '../src/harness/workflow-program'
-import {
   BatchArtifactKind,
   BatchPhase,
   BatchResult,
   createBatchProgram,
 } from '../src/programs/batch'
+
+import type {
+  ActionNode,
+  DomainResult,
+  TransitionRule,
+  TypedArtifactMap,
+  WorkflowNode,
+} from '../src/harness/workflow-program'
 
 function makeState(overrides: Partial<TaskState> = {}): TaskState {
   return {
@@ -38,9 +38,9 @@ function resolveRule(
 }
 
 function expectActionNode(node: undefined | WorkflowNode): ActionNode {
-  expect(node?.type).toBe(WorkflowNodeType.Action)
-  if (node?.type !== WorkflowNodeType.Action) {
-    throw new Error(`Expected action node, got ${node?.type ?? 'undefined'}`)
+  expect(node).toBeDefined()
+  if (!node) {
+    throw new Error('Expected action node to be defined')
   }
   return node
 }
@@ -51,9 +51,12 @@ function buildProgram(maxRetries = 3) {
     maxRetries,
     outputSchema: {},
     prompt: 'test',
-    provider: {} as never,
     results: {},
     resultsPath: '/tmp/results.json',
+    agent: {
+      name: 'codex',
+      execute: vi.fn(async () => ({})),
+    },
     validateOutput() {},
   })
 }
@@ -112,20 +115,20 @@ describe('batch program', () => {
     })
   })
 
-  test('Process action converts validation errors into retry request', async () => {
+  test('Process action builds the single-file prompt and converts validation errors into retry request', async () => {
     const validateOutput = vi.fn(() => {
       throw new Error('schema mismatch')
     })
-    const provider = {
+    const agent = {
       name: 'codex',
-      runFile: vi.fn(async () => ({ wrong: true })),
+      execute: vi.fn(async () => ({ wrong: true })),
     }
     const program = createBatchProgram({
+      agent,
       configDir: '/tmp',
       maxRetries: 3,
-      outputSchema: {},
-      prompt: 'test',
-      provider,
+      outputSchema: { type: 'object' },
+      prompt: 'summarize file',
       results: {},
       resultsPath: '/tmp/results.json',
       validateOutput,
@@ -152,7 +155,17 @@ describe('batch program', () => {
       subjectId: 'input/a.txt',
     })
 
-    expect(provider.runFile).toHaveBeenCalledOnce()
+    expect(agent.execute).toHaveBeenCalledOnce()
+    expect(agent.execute).toHaveBeenCalledWith({
+      outputSchema: { type: 'object' },
+      prompt: [
+        'Process exactly one file and return structured output only.',
+        'summarize file',
+        'File path: input/a.txt',
+        'File content:',
+        'alpha',
+      ].join('\n\n'),
+    })
     expect(validateOutput).toHaveBeenCalledWith({ wrong: true })
     expect(result).toStrictEqual({
       result: { kind: BatchResult.ProcessRetryRequested },

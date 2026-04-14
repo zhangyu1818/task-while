@@ -199,12 +199,7 @@ test('openspec source builds a session that keeps stable handles and apply-align
     featureId: fixture.changeId,
     workspaceRoot: fixture.root,
   })
-  const prompt = await session.buildImplementPrompt({
-    attempt: 1,
-    generation: 1,
-    lastFindings: [],
-    taskHandle: '1.1',
-  })
+  const prompt = await session.buildImplementPrompt('1.1')
 
   expect(session.listTasks()).toEqual([
     '1.1',

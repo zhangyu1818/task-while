@@ -4,30 +4,35 @@ import path from 'node:path'
 
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
-import type {
-  BatchFileInput,
-  BatchStructuredOutputProvider,
-} from '../src/batch/provider'
+import type { AgentInvocation, AgentPort } from '../src/ports/agent'
 
-const providerState = vi.hoisted(() => ({
-  inputs: [] as BatchFileInput[],
-  provider: null as BatchStructuredOutputProvider | null,
+const agentState = vi.hoisted(() => ({
+  agent: null as AgentPort | null,
+  invocations: [] as AgentInvocation[],
+  createAgentPort: vi.fn(() => {
+    if (!agentState.agent) {
+      throw new Error('Missing batch agent')
+    }
+    return agentState.agent
+  }),
 }))
 
-vi.mock('../src/batch/provider', () => {
+vi.mock('../src/ports/agent', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../src/ports/agent')>()
   return {
-    createBatchStructuredOutputProvider: vi.fn(() => {
-      if (!providerState.provider) {
-        throw new Error('Missing batch structured output provider')
-      }
-      return providerState.provider
-    }),
+    ...original,
+    createAgentPort: agentState.createAgentPort,
   }
 })
 
 const { runBatchCommand } = await import('../src/commands/batch')
 
 const workspaces: string[] = []
+
+function extractFilePath(prompt: string) {
+  const match = prompt.match(/File path: (.+)(?:\n|$)/)
+  return match?.[1] ?? ''
+}
 
 async function createWorkspace() {
   const root = await mkdtemp(path.join(tmpdir(), 'while-batch-command-'))
@@ -85,8 +90,9 @@ afterEach(async () => {
 })
 
 beforeEach(() => {
-  providerState.inputs = []
-  providerState.provider = null
+  agentState.agent = null
+  agentState.createAgentPort.mockClear()
+  agentState.invocations = []
   vi.restoreAllMocks()
 })
 
@@ -98,12 +104,12 @@ test('runBatchCommand writes results for discovered files', async () => {
   await writeFile(path.join(inputDir, 'b.txt'), 'beta\n')
   const configPath = await writeConfig(root)
 
-  providerState.provider = {
+  agentState.agent = {
     name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
+    async execute(invocation) {
+      agentState.invocations.push(invocation)
       return {
-        summary: path.basename(input.filePath),
+        summary: path.basename(extractFilePath(invocation.prompt)),
       }
     },
   }
@@ -113,10 +119,9 @@ test('runBatchCommand writes results for discovered files', async () => {
     cwd: root,
   })
 
-  expect(providerState.inputs.map((input) => input.filePath).sort()).toEqual([
-    'input/a.txt',
-    'input/b.txt',
-  ])
+  expect(
+    agentState.invocations.map((input) => extractFilePath(input.prompt)).sort(),
+  ).toEqual(['input/a.txt', 'input/b.txt'])
 
   const results = await readBatchResults<{ summary: string }>(root)
 
@@ -140,12 +145,12 @@ test('runBatchCommand skips completed results on rerun', async () => {
     },
   })
 
-  providerState.provider = {
+  agentState.agent = {
     name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
+    async execute(invocation) {
+      agentState.invocations.push(invocation)
       return {
-        summary: input.filePath,
+        summary: extractFilePath(invocation.prompt),
       }
     },
   }
@@ -155,10 +160,9 @@ test('runBatchCommand skips completed results on rerun', async () => {
     cwd: root,
   })
 
-  expect(providerState.inputs.map((input) => input.filePath).sort()).toEqual([
-    'input/b.txt',
-    'input/c.txt',
-  ])
+  expect(
+    agentState.invocations.map((input) => extractFilePath(input.prompt)).sort(),
+  ).toEqual(['input/b.txt', 'input/c.txt'])
 
   const results = await readBatchResults<{ summary: string }>(root)
 
@@ -178,16 +182,19 @@ test('runBatchCommand retries files that fail validation until they succeed', as
   const configPath = await writeConfig(root)
   let attemptCount = 0
 
-  providerState.provider = {
+  agentState.agent = {
     name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
-      if (input.filePath === 'input/a.txt' && attemptCount === 0) {
+    async execute(invocation) {
+      agentState.invocations.push(invocation)
+      if (
+        extractFilePath(invocation.prompt) === 'input/a.txt' &&
+        attemptCount === 0
+      ) {
         attemptCount += 1
         throw new Error('transient failure')
       }
       return {
-        summary: input.filePath,
+        summary: extractFilePath(invocation.prompt),
       }
     },
   }
@@ -215,12 +222,12 @@ test('runBatchCommand resolves glob and result keys relative to the batch.yaml d
   await writeFile(path.join(inputDir, 'a.txt'), 'alpha\n')
   const configPath = await writeConfig(root, ['../input/*.txt'], configDir)
 
-  providerState.provider = {
+  agentState.agent = {
     name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
+    async execute(invocation) {
+      agentState.invocations.push(invocation)
       return {
-        summary: input.filePath,
+        summary: extractFilePath(invocation.prompt),
       }
     },
   }
@@ -230,9 +237,9 @@ test('runBatchCommand resolves glob and result keys relative to the batch.yaml d
     cwd: root,
   })
 
-  expect(providerState.inputs.map((input) => input.filePath)).toEqual([
-    '../input/a.txt',
-  ])
+  expect(
+    agentState.invocations.map((input) => extractFilePath(input.prompt)),
+  ).toEqual(['../input/a.txt'])
   expect(result.results).toEqual({
     '../input/a.txt': {
       summary: '../input/a.txt',
@@ -244,11 +251,11 @@ test('runBatchCommand completes cleanly when glob matches nothing', async () => 
   const root = await createWorkspace()
   const configPath = await writeConfig(root, ['missing/**/*.txt'])
 
-  providerState.provider = {
+  agentState.agent = {
     name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
-      return { summary: input.filePath }
+    async execute(invocation) {
+      agentState.invocations.push(invocation)
+      return { summary: extractFilePath(invocation.prompt) }
     },
   }
 
@@ -260,6 +267,7 @@ test('runBatchCommand completes cleanly when glob matches nothing', async () => 
   expect(result.processedFiles).toEqual([])
   expect(result.results).toEqual({})
   expect(result.failedFiles).toEqual([])
+  expect(agentState.createAgentPort).not.toHaveBeenCalled()
 })
 
 test('runBatchCommand --verbose prints outer batch progress', async () => {
@@ -270,12 +278,12 @@ test('runBatchCommand --verbose prints outer batch progress', async () => {
   await writeFile(path.join(inputDir, 'b.txt'), 'beta\n')
   const configPath = await writeConfig(root)
 
-  providerState.provider = {
+  agentState.agent = {
     name: 'codex',
-    async runFile(input) {
-      providerState.inputs.push(input)
+    async execute(invocation) {
+      agentState.invocations.push(invocation)
       return {
-        summary: input.filePath,
+        summary: extractFilePath(invocation.prompt),
       }
     },
   }

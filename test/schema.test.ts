@@ -1,146 +1,61 @@
 import { expect, test } from 'vitest'
 
 import {
-  implementArtifactSchema,
-  integrateArtifactSchema,
+  validateImplementOutput,
   validateReviewOutput,
-  validateTaskGraph,
-  validateWorkflowEvent,
-  validateWorkflowState,
 } from '../src/schema/index'
 
-test('validateWorkflowState accepts discriminated task states', () => {
-  const state = validateWorkflowState({
-    currentTaskHandle: 'task/greet',
-    featureId: '001-demo',
-    tasks: {
-      'task/farewell': {
-        attempt: 0,
-        generation: 1,
-        invalidatedBy: null,
-        lastFindings: [],
-        status: 'pending',
-      },
-      'task/greet': {
-        attempt: 1,
-        generation: 1,
-        invalidatedBy: null,
-        lastFindings: [],
-        lastReviewVerdict: 'pass',
-        stage: 'review',
-        status: 'running',
-      },
-    },
-  })
-
-  expect(state.tasks['task/greet']?.status).toBe('running')
-})
-
-test('validateWorkflowState accepts integrate as a running stage', () => {
-  const state = validateWorkflowState({
-    currentTaskHandle: 'T001',
-    featureId: '001-demo',
-    tasks: {
-      T001: {
-        attempt: 1,
-        generation: 1,
-        invalidatedBy: null,
-        lastFindings: [],
-        stage: 'integrate',
-        status: 'running',
-      },
-    },
-  })
-
-  expect(state.tasks.T001).toMatchObject({
-    stage: 'integrate',
-    status: 'running',
-  })
-})
-
-test('validateWorkflowState rejects running task without stage', () => {
-  expect(() => {
-    validateWorkflowState({
-      currentTaskHandle: 'T001',
-      featureId: '001-demo',
-      tasks: {
-        T001: {
-          attempt: 1,
-          generation: 1,
-          invalidatedBy: null,
-          lastFindings: [],
-          status: 'running',
-        },
-      },
-    })
-  }).toThrow(/stage/i)
-})
-
-test('implementArtifactSchema captures generation and attempt metadata', () => {
-  const result = implementArtifactSchema.safeParse({
-    attempt: 2,
-    createdAt: '2026-03-22T00:00:00.000Z',
-    generation: 3,
+test('validateImplementOutput accepts the current implement output contract', () => {
+  const result = validateImplementOutput({
+    assumptions: ['uses existing helper'],
+    needsHumanAttention: false,
+    notes: ['updated tests'],
+    status: 'implemented',
+    summary: 'done',
     taskHandle: 'T001',
-    result: {
+    unresolvedItems: [],
+  })
+
+  expect(result).toMatchObject({
+    status: 'implemented',
+    taskHandle: 'T001',
+  })
+})
+
+test('validateImplementOutput rejects duplicate unresolved items', () => {
+  expect(() => {
+    validateImplementOutput({
       assumptions: [],
       needsHumanAttention: false,
       notes: [],
-      status: 'implemented',
-      summary: 'done',
+      status: 'partial',
+      summary: 'still working',
       taskHandle: 'T001',
-      unresolvedItems: [],
-    },
-  })
-
-  expect(result.success).toBe(true)
+      unresolvedItems: ['follow up', 'follow up'],
+    })
+  }).toThrow(/duplicate unresolved item/i)
 })
 
-test('integrateArtifactSchema captures commit metadata', () => {
-  const result = integrateArtifactSchema.safeParse({
-    attempt: 1,
-    createdAt: '2026-03-24T00:00:00.000Z',
-    generation: 2,
+test('validateReviewOutput accepts the current review output contract', () => {
+  const result = validateReviewOutput({
+    findings: [],
+    overallRisk: 'low',
+    summary: 'looks good',
     taskHandle: 'T001',
-    result: {
-      commitSha: 'commit-1',
-      summary: 'integrated',
-    },
+    verdict: 'pass',
+    acceptanceChecks: [
+      {
+        criterion: 'task output matches prompt',
+        note: 'current diff satisfies task',
+        status: 'pass',
+      },
+    ],
   })
 
-  expect(result.success).toBe(true)
-})
-
-test('validateWorkflowEvent accepts integrate lifecycle events', () => {
-  for (const type of [
-    'integrate_started',
-    'integrate_completed',
-    'integrate_failed',
-  ] as const) {
-    expect(
-      validateWorkflowEvent({
-        attempt: 1,
-        generation: 2,
-        taskHandle: 'T001',
-        timestamp: '2026-03-24T00:00:00.000Z',
-        type,
-      }).type,
-    ).toBe(type)
-  }
-})
-
-test('validateWorkflowEvent rejects retired rewind event types', () => {
-  for (const type of ['task_rewound', 'task_invalidated'] as const) {
-    expect(() => {
-      validateWorkflowEvent({
-        attempt: 0,
-        generation: 1,
-        taskHandle: 'T001',
-        timestamp: '2026-03-28T00:00:00.000Z',
-        type,
-      })
-    }).toThrow(/invalid enum value|task_rewound|task_invalidated/i)
-  }
+  expect(result).toMatchObject({
+    overallRisk: 'low',
+    verdict: 'pass',
+  })
 })
 
 test('validateReviewOutput rejects pass verdicts with remaining findings', () => {
@@ -186,25 +101,4 @@ test('validateReviewOutput rejects pass verdicts with failed acceptance checks',
       ],
     })
   }).toThrow(/pass requires all acceptance checks to pass/i)
-})
-
-test('validateTaskGraph rejects duplicate task handles', () => {
-  expect(() => {
-    validateTaskGraph({
-      featureId: '001-demo',
-      maxIterations: 5,
-      tasks: [
-        {
-          commitSubject: 'Task T001: Do work',
-          dependsOn: [],
-          handle: 'T001',
-        },
-        {
-          commitSubject: 'Task T001: Do more work',
-          dependsOn: [],
-          handle: 'T001',
-        },
-      ],
-    })
-  }).toThrow(/duplicate/i)
 })

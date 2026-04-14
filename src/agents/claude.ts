@@ -325,9 +325,3 @@ export class ClaudeAgentClient
     return validateReviewOutput(output)
   }
 }
-
-export function createClaudeProvider(
-  options: ClaudeAgentClientOptions,
-): ImplementerProvider & ReviewerProvider {
-  return new ClaudeAgentClient(options)
-}

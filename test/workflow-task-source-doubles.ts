@@ -1,13 +1,24 @@
 import { readSpecKitCompletionCriteriaFromPrompt } from './spec-kit-task-source-test-helpers'
 
 import type { TaskSourceSession } from '../src/task-sources/types'
-import type { ImplementOutput, ReviewFinding, TaskGraph } from '../src/types'
 import type { TaskPromptSource } from './workflow-runtime-doubles'
 
 export interface CompletionUpdate {
   checked?: boolean
   completed: boolean
   taskHandle: string
+}
+
+export interface TestTaskGraphTask {
+  commitSubject: string
+  dependsOn: string[]
+  handle: string
+}
+
+export interface TestTaskGraph {
+  featureId: string
+  maxIterations: number
+  tasks: TestTaskGraphTask[]
 }
 
 export class InMemoryWorkspace {
@@ -41,7 +52,7 @@ export class InMemoryWorkspace {
 
 export class InMemoryTaskSource implements TaskSourceSession {
   public constructor(
-    private readonly graph: TaskGraph,
+    private readonly graph: TestTaskGraph,
     private readonly prompts: TaskPromptSource,
     private readonly workspace: InMemoryWorkspace,
   ) {}
@@ -78,37 +89,17 @@ export class InMemoryTaskSource implements TaskSourceSession {
     return this.getTask(taskHandle).commitSubject
   }
 
-  public async buildImplementPrompt(input: {
-    attempt: number
-    generation: number
-    lastFindings: ReviewFinding[]
-    taskHandle: string
-  }) {
-    const { taskHandle, ...unused } = input
-    void unused
+  public async buildImplementPrompt(taskHandle: string) {
     return this.getPrompt(taskHandle)
   }
 
-  public async buildReviewPrompt(input: {
-    actualChangedFiles: string[]
-    attempt: number
-    generation: number
-    implement: ImplementOutput
-    lastFindings: ReviewFinding[]
-    taskHandle: string
-  }) {
-    const { taskHandle, ...unused } = input
-    void unused
+  public async buildReviewPrompt(taskHandle: string) {
     return this.getPrompt(taskHandle)
   }
 
   public async getCompletionCriteria(taskHandle: string) {
     const prompt = await this.getPrompt(taskHandle)
     return readSpecKitCompletionCriteriaFromPrompt(prompt)
-  }
-
-  public getTaskDependencies(taskHandle: string) {
-    return this.getTask(taskHandle).dependsOn
   }
 
   public async isTaskCompleted(taskHandle: string) {
