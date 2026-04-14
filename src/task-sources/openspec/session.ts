@@ -178,18 +178,17 @@ export function createOpenSpecSession(
       const task = getTask(taskHandle)
       return `Task ${input.featureId}/${task.handle}: ${task.title}`
     },
-    async buildImplementPrompt(args) {
-      const task = getTask(args.taskHandle)
+    async buildImplementPrompt(taskHandle: string) {
+      const task = getTask(taskHandle)
       const applyContext = await loadApplyContext()
       return createImplementPrompt(task, {
         ...applyContext,
         featureId: input.featureId,
       })
     },
-    async buildReviewPrompt(args) {
-      const task = getTask(args.taskHandle)
+    async buildReviewPrompt(taskHandle: string) {
+      const task = getTask(taskHandle)
       const applyContext = await loadApplyContext()
-      void args
       return createReviewPrompt(task, {
         ...applyContext,
         featureId: input.featureId,
@@ -197,10 +196,6 @@ export function createOpenSpecSession(
     },
     async getCompletionCriteria(taskHandle: string) {
       return [getTask(taskHandle).title]
-    },
-    getTaskDependencies(taskHandle: string) {
-      void taskHandle
-      return []
     },
     async isTaskCompleted(taskHandle: string) {
       const task = getTask(taskHandle)

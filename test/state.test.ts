@@ -4,7 +4,7 @@ import { createInitialState, TaskStatus } from '../src/harness/state'
 
 describe('state types', () => {
   test('initial state is queued with no phase', () => {
-    const state = createInitialState('T001')
+    const state = createInitialState()
     expect(state).toStrictEqual({
       artifacts: {},
       completedAt: null,

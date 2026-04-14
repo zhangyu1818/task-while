@@ -10,6 +10,8 @@ import {
   type WorkflowRoleProviderOptions,
 } from '../agents/provider-options'
 
+import type { TaskSourceName } from '../task-sources/types'
+
 const workflowModeSchema = z.enum(['direct', 'pull-request'])
 
 const defaultWorkflowRole: WorkflowRoleProviderOptions = {
@@ -54,7 +56,7 @@ const workflowRolesSchema = z
 const taskConfigSchema = z
   .object({
     maxIterations: z.number().int().min(1).max(20).default(5),
-    source: z.string().trim().min(1).default('spec-kit'),
+    source: z.enum(['spec-kit', 'openspec']).default('spec-kit'),
   })
   .strict()
 
@@ -96,7 +98,7 @@ export interface WorkflowSettingsConfig {
 
 export interface TaskSettingsConfig {
   maxIterations: number
-  source: string
+  source: TaskSourceName
 }
 
 export interface VerifyConfig {

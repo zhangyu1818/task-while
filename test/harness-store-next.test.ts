@@ -30,7 +30,7 @@ function runStoreTests(
       store = ctx.store
       cleanup = ctx.cleanup
 
-      const state = createInitialState('T001')
+      const state = createInitialState()
       await store.saveState('run-direct', 'T001', state)
 
       const loaded = await store.loadState('run-direct', 'T001')

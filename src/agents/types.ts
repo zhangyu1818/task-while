@@ -4,7 +4,6 @@ import type { ImplementOutput, ReviewFinding, ReviewOutput } from '../types'
 
 export interface ImplementAgentInput {
   attempt: number
-  generation: number
   lastFindings: ReviewFinding[]
   prompt: TaskPrompt
   taskHandle: string
@@ -13,7 +12,6 @@ export interface ImplementAgentInput {
 export interface ReviewAgentInput {
   actualChangedFiles: string[]
   attempt: number
-  generation: number
   implement: ImplementOutput
   lastFindings: ReviewFinding[]
   prompt: TaskPrompt

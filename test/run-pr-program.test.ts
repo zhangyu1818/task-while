@@ -35,19 +35,23 @@ function buildProgram(maxIterations = 5) {
   return createRunPrProgram({
     implementer: {} as never,
     maxIterations,
-    reviewer: {} as never,
     reviewPollIntervalMs: 0,
     verifyCommands: ['echo ok'],
     workspaceRoot: '/tmp',
     ports: {
-      codeHost: {} as never,
       git: {} as never,
+      github: {} as never,
       taskSource: {} as never,
     },
   })
 }
 
 describe('run-pr program', () => {
+  test('entry is implement', () => {
+    const program = buildProgram()
+    expect(program.entry).toBe(RunPhase.Implement)
+  })
+
   test('verify.passed routes to checkpoint', () => {
     const program = buildProgram()
     const rule = program.transitions[RunPhase.Verify]![RunResult.VerifyPassed]!
@@ -137,7 +141,6 @@ describe('run-pr program', () => {
   test('action error retries under budget', () => {
     const program = buildProgram(3)
     for (const phase of [
-      RunPhase.Contract,
       RunPhase.Implement,
       RunPhase.Checkpoint,
       RunPhase.Integrate,
@@ -191,8 +194,8 @@ describe('run-pr program', () => {
       rule,
       makeState({
         phaseIterations: {
-          [RunPhase.Contract]: 3,
           [RunPhase.Implement]: 1,
+          [RunPhase.Verify]: 3,
         },
       }),
     )
@@ -211,7 +214,6 @@ describe('run-pr program', () => {
       makeState({
         phaseIterations: {
           [RunPhase.Checkpoint]: 1,
-          [RunPhase.Implement]: 2,
           [RunPhase.Review]: 3,
         },
       }),

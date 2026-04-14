@@ -29,8 +29,6 @@ export interface SessionProgress {
 }
 
 export async function* runSession(input: {
-  concurrency?: number
-  config: Record<string, unknown>
   kernel: { run: (subjectId: string) => Promise<KernelResult> }
   scheduler: Scheduler
 }): AsyncGenerator<SessionEvent> {

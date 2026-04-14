@@ -4,22 +4,18 @@ import { createInMemoryHarnessStore } from '../src/harness/in-memory-store'
 import { createInitialState, TaskStatus } from '../src/harness/state'
 import {
   createBatchRetryScheduler,
-  createRunGraphScheduler,
+  createTaskQueueScheduler,
 } from '../src/schedulers/scheduler'
 
-describe('createRunGraphScheduler', () => {
+describe('createTaskQueueScheduler', () => {
   const protocol = 'test-protocol'
 
-  test('yields tasks in dependency order', async () => {
+  test('yields tasks in source order', async () => {
     const store = createInMemoryHarnessStore()
-    const scheduler = createRunGraphScheduler({
+    const scheduler = createTaskQueueScheduler({
       protocol,
       store,
-      graph: [
-        { dependsOn: [], subjectId: 'a' },
-        { dependsOn: ['a'], subjectId: 'b' },
-        { dependsOn: ['b'], subjectId: 'c' },
-      ],
+      taskHandles: ['a', 'b', 'c'],
     })
 
     await scheduler.rebuild()
@@ -39,18 +35,15 @@ describe('createRunGraphScheduler', () => {
   test('skips already-done tasks from store on rebuild', async () => {
     const store = createInMemoryHarnessStore()
 
-    const doneState = createInitialState('a')
+    const doneState = createInitialState()
     doneState.status = TaskStatus.Done
     doneState.completedAt = new Date().toISOString()
     await store.saveState(protocol, 'a', doneState)
 
-    const scheduler = createRunGraphScheduler({
+    const scheduler = createTaskQueueScheduler({
       protocol,
       store,
-      graph: [
-        { dependsOn: [], subjectId: 'a' },
-        { dependsOn: ['a'], subjectId: 'b' },
-      ],
+      taskHandles: ['a', 'b'],
     })
 
     await scheduler.rebuild()
@@ -61,10 +54,10 @@ describe('createRunGraphScheduler', () => {
 
   test('returns null when no more tasks', async () => {
     const store = createInMemoryHarnessStore()
-    const scheduler = createRunGraphScheduler({
-      graph: [{ dependsOn: [], subjectId: 'a' }],
+    const scheduler = createTaskQueueScheduler({
       protocol,
       store,
+      taskHandles: ['a'],
     })
 
     await scheduler.rebuild()
@@ -76,10 +69,10 @@ describe('createRunGraphScheduler', () => {
 
   test('suspended subject is not rescheduled within same session', async () => {
     const store = createInMemoryHarnessStore()
-    const scheduler = createRunGraphScheduler({
-      graph: [{ dependsOn: [], subjectId: 'a' }],
+    const scheduler = createTaskQueueScheduler({
       protocol,
       store,
+      taskHandles: ['a'],
     })
 
     await scheduler.rebuild()
@@ -95,15 +88,15 @@ describe('createRunGraphScheduler', () => {
   test('suspended subjects resume after rebuild', async () => {
     const store = createInMemoryHarnessStore()
 
-    const state = createInitialState('a')
+    const state = createInitialState()
     state.status = TaskStatus.Suspended
     state.currentPhase = 'review'
     await store.saveState(protocol, 'a', state)
 
-    const scheduler = createRunGraphScheduler({
-      graph: [{ dependsOn: [], subjectId: 'a' }],
+    const scheduler = createTaskQueueScheduler({
       protocol,
       store,
+      taskHandles: ['a'],
     })
 
     const sets = await scheduler.rebuild()
@@ -116,21 +109,18 @@ describe('createRunGraphScheduler', () => {
   test('rebuild returns replan set separate from blocked', async () => {
     const store = createInMemoryHarnessStore()
 
-    const blockedState = createInitialState('a')
+    const blockedState = createInitialState()
     blockedState.status = TaskStatus.Blocked
     await store.saveState(protocol, 'a', blockedState)
 
-    const replanState = createInitialState('b')
+    const replanState = createInitialState()
     replanState.status = TaskStatus.Replan
     await store.saveState(protocol, 'b', replanState)
 
-    const scheduler = createRunGraphScheduler({
+    const scheduler = createTaskQueueScheduler({
       protocol,
       store,
-      graph: [
-        { dependsOn: [], subjectId: 'a' },
-        { dependsOn: [], subjectId: 'b' },
-      ],
+      taskHandles: ['a', 'b'],
     })
 
     const sets = await scheduler.rebuild()
@@ -142,15 +132,11 @@ describe('createRunGraphScheduler', () => {
 
   test('untilTaskHandle stops after target done', async () => {
     const store = createInMemoryHarnessStore()
-    const scheduler = createRunGraphScheduler({
+    const scheduler = createTaskQueueScheduler({
       protocol,
       store,
+      taskHandles: ['a', 'b', 'c'],
       untilTaskHandle: 'b',
-      graph: [
-        { dependsOn: [], subjectId: 'a' },
-        { dependsOn: ['a'], subjectId: 'b' },
-        { dependsOn: ['b'], subjectId: 'c' },
-      ],
     })
 
     await scheduler.rebuild()
@@ -171,7 +157,7 @@ describe('createBatchRetryScheduler', () => {
   test('yields files in order, skipping done', async () => {
     const store = createInMemoryHarnessStore()
 
-    const doneState = createInitialState('file-b.json')
+    const doneState = createInitialState()
     doneState.status = TaskStatus.Done
     doneState.completedAt = new Date().toISOString()
     await store.saveState(protocol, 'file-b.json', doneState)

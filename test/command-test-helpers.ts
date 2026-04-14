@@ -7,55 +7,12 @@ import { execa } from 'execa'
 import { readSpecKitCompletionCriteriaFromPrompt } from './spec-kit-task-source-test-helpers'
 import { createTaskPrompt } from './task-source-test-helpers'
 
-import type {
-  ImplementAgentInput,
-  ImplementerProvider,
-  ReviewAgentInput,
-  ReviewerProvider,
-} from '../src/agents/types'
+import type { ReviewAgentInput } from '../src/agents/types'
 import type { ReviewOutput, WorkspaceContext } from '../src/types'
 
 export interface CreateWorkspaceInput {
   includeSecondTask?: boolean
   maxIterations?: number
-}
-
-export type ScriptedReviewHandler = (
-  input: ReviewAgentInput,
-) => Promise<ReviewOutput>
-
-export class ScriptedWorkflowProvider
-  implements ImplementerProvider, ReviewerProvider
-{
-  public readonly implementInputs: ImplementAgentInput[] = []
-  public readonly name = 'scripted'
-  public readonly reviewInputs: ReviewAgentInput[] = []
-
-  public constructor(
-    private readonly implementHandler: (
-      input: ImplementAgentInput,
-    ) => Promise<void>,
-    private readonly reviewHandler: ScriptedReviewHandler,
-  ) {}
-
-  public async implement(input: ImplementAgentInput) {
-    this.implementInputs.push(input)
-    await this.implementHandler(input)
-    return {
-      assumptions: [],
-      needsHumanAttention: false,
-      notes: [],
-      status: 'implemented' as const,
-      summary: `${input.taskHandle} done`,
-      taskHandle: input.taskHandle,
-      unresolvedItems: [],
-    }
-  }
-
-  public async review(input: ReviewAgentInput) {
-    this.reviewInputs.push(input)
-    return this.reviewHandler(input)
-  }
 }
 
 export async function git(root: string, args: string[]) {

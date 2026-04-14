@@ -57,18 +57,20 @@ function buildProgram(maxIterations = 5) {
 }
 
 describe('run-direct program', () => {
-  test('entry is RunPhase.Contract', () => {
+  test('entry is RunPhase.Implement', () => {
     const program = buildProgram()
-    expect(program.entry).toBe(RunPhase.Contract)
+    expect(program.entry).toBe(RunPhase.Implement)
   })
 
-  test('ContractGenerated transitions to implement', () => {
+  test('ImplementationGenerated transitions to verify', () => {
     const program = buildProgram()
     const rule =
-      program.transitions[RunPhase.Contract]![RunResult.ContractGenerated]!
+      program.transitions[RunPhase.Implement]![
+        RunResult.ImplementationGenerated
+      ]!
     const transition = resolveRule(rule, makeState())
     expect(transition).toStrictEqual({
-      nextPhase: RunPhase.Implement,
+      nextPhase: RunPhase.Verify,
       status: TaskStatus.Running,
     })
   })
@@ -140,11 +142,7 @@ describe('run-direct program', () => {
 
   test('action error retries under budget', () => {
     const program = buildProgram(3)
-    for (const phase of [
-      RunPhase.Contract,
-      RunPhase.Implement,
-      RunPhase.Integrate,
-    ]) {
+    for (const phase of [RunPhase.Implement, RunPhase.Integrate]) {
       const rule = program.transitions[phase]![KernelResultKind.Error]!
       const transition = resolveRule(
         rule,
@@ -194,8 +192,8 @@ describe('run-direct program', () => {
       rule,
       makeState({
         phaseIterations: {
-          [RunPhase.Contract]: 3,
           [RunPhase.Implement]: 1,
+          [RunPhase.Verify]: 3,
         },
       }),
     )
@@ -213,8 +211,8 @@ describe('run-direct program', () => {
       rule,
       makeState({
         phaseIterations: {
-          [RunPhase.Contract]: 3,
           [RunPhase.Integrate]: 1,
+          [RunPhase.Verify]: 3,
         },
       }),
     )

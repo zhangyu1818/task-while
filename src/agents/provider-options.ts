@@ -43,7 +43,8 @@ export function providerOptionsEqual(
   return (
     left.provider === right.provider &&
     left.model === right.model &&
-    left.effort === right.effort
+    left.effort === right.effort &&
+    left.timeout === right.timeout
   )
 }
 

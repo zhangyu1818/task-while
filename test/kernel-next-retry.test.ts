@@ -3,7 +3,17 @@ import { describe, expect, test } from 'vitest'
 import { createInMemoryHarnessStore } from '../src/harness/in-memory-store'
 import { errorRetry, KernelResultKind, runKernel } from '../src/harness/kernel'
 import { createInitialState, TaskStatus } from '../src/harness/state'
-import { action, sequence } from '../src/harness/workflow-builders'
+import {
+  createWorkflowProgram,
+  type ActionNode,
+} from '../src/harness/workflow-program'
+
+function actionNode(name: string, run: ActionNode['run']): ActionNode {
+  return {
+    name,
+    run,
+  }
+}
 
 describe('kernel-next runKernel retry and restore paths', () => {
   const protocol = 'test-protocol'
@@ -12,16 +22,14 @@ describe('kernel-next runKernel retry and restore paths', () => {
 
   test('action error routes through transition table when error rule exists', async () => {
     let attempts = 0
-    const program = sequence(
+    const program = createWorkflowProgram(
       [
-        action('work', {
-          async run() {
-            attempts++
-            if (attempts < 3) {
-              throw new Error('transient')
-            }
-            return { result: { kind: 'work.done' } }
-          },
+        actionNode('work', async () => {
+          attempts++
+          if (attempts < 3) {
+            throw new Error('transient')
+          }
+          return { result: { kind: 'work.done' } }
         }),
       ],
       {
@@ -49,12 +57,10 @@ describe('kernel-next runKernel retry and restore paths', () => {
   })
 
   test('action error blocks when no error rule defined', async () => {
-    const program = sequence(
+    const program = createWorkflowProgram(
       [
-        action('fail', {
-          async run() {
-            throw new Error('boom')
-          },
+        actionNode('fail', async () => {
+          throw new Error('boom')
         }),
       ],
       {
@@ -80,12 +86,8 @@ describe('kernel-next runKernel retry and restore paths', () => {
   })
 
   test('dynamic transition rule receives state and result', async () => {
-    const program = sequence(
-      [
-        action('work', {
-          run: async () => ({ result: { kind: 'work.done' } }),
-        }),
-      ],
+    const program = createWorkflowProgram(
+      [actionNode('work', async () => ({ result: { kind: 'work.done' } }))],
       {
         work: {
           'work.done': (input) => {
@@ -128,20 +130,18 @@ describe('kernel-next runKernel retry and restore paths', () => {
       timestamp: '2024-01-01T00:00:00Z',
     })
 
-    const suspended = createInitialState(subjectId)
+    const suspended = createInitialState()
     suspended.status = TaskStatus.Suspended
     suspended.currentPhase = 'resume'
     suspended.artifacts = { review: 'review-new' }
     await store.saveState(protocol, subjectId, suspended)
 
     const seen: unknown[] = []
-    const program = sequence(
+    const program = createWorkflowProgram(
       [
-        action('resume', {
-          async run(ctx) {
-            seen.push(ctx.artifacts.get('review')?.payload)
-            return { result: { kind: 'resume.done' } }
-          },
+        actionNode('resume', async (ctx) => {
+          seen.push(ctx.artifacts.get('review')?.payload)
+          return { result: { kind: 'resume.done' } }
         }),
       ],
       {
@@ -160,19 +160,15 @@ describe('kernel-next runKernel retry and restore paths', () => {
     let implementCount = 0
     let verifyCount = 0
 
-    const program = sequence(
+    const program = createWorkflowProgram(
       [
-        action('implement', {
-          async run() {
-            implementCount++
-            return { result: { kind: 'impl.done' } }
-          },
+        actionNode('implement', async () => {
+          implementCount++
+          return { result: { kind: 'impl.done' } }
         }),
-        action('verify', {
-          async run() {
-            verifyCount++
-            return { result: { kind: 'verify.failed' } }
-          },
+        actionNode('verify', async () => {
+          verifyCount++
+          return { result: { kind: 'verify.failed' } }
         }),
       ],
       {
@@ -203,14 +199,14 @@ describe('kernel-next runKernel retry and restore paths', () => {
   })
 
   test('suspended transition returns suspended status', async () => {
-    const program = sequence(
+    const program = createWorkflowProgram(
       [
-        action('prepare', {
-          run: async () => ({ result: { kind: 'prepare.done' } }),
-        }),
-        action('wait-for-review', {
-          run: async () => ({ result: { kind: 'wait.done' } }),
-        }),
+        actionNode('prepare', async () => ({
+          result: { kind: 'prepare.done' },
+        })),
+        actionNode('wait-for-review', async () => ({
+          result: { kind: 'wait.done' },
+        })),
       ],
       {
         prepare: {

@@ -20,10 +20,10 @@ export interface Scheduler {
   }>
 }
 
-export function createRunGraphScheduler(input: {
-  graph: { dependsOn: string[]; subjectId: string }[]
+export function createTaskQueueScheduler(input: {
   protocol: string
   store: HarnessStore
+  taskHandles: string[]
   untilTaskHandle?: string
 }): Scheduler {
   const done = new Set<string>()
@@ -35,11 +35,13 @@ export function createRunGraphScheduler(input: {
   return {
     async markBlocked(subjectId: string) {
       deferred.delete(subjectId)
+      suspended.delete(subjectId)
       blocked.add(subjectId)
     },
 
     async markDone(subjectId: string) {
       deferred.delete(subjectId)
+      suspended.delete(subjectId)
       done.add(subjectId)
     },
 
@@ -52,22 +54,20 @@ export function createRunGraphScheduler(input: {
         return null
       }
 
-      for (const node of input.graph) {
-        if (done.has(node.subjectId)) {
+      for (const subjectId of input.taskHandles) {
+        if (done.has(subjectId)) {
           continue
         }
-        if (blocked.has(node.subjectId)) {
+        if (blocked.has(subjectId)) {
           continue
         }
-        if (suspended.has(node.subjectId)) {
+        if (suspended.has(subjectId)) {
           continue
         }
-        if (deferred.has(node.subjectId)) {
+        if (deferred.has(subjectId)) {
           continue
         }
-        if (node.dependsOn.every((dep) => done.has(dep))) {
-          return { subjectId: node.subjectId }
-        }
+        return { subjectId }
       }
 
       const deferredSubject = deferred.values().next()
@@ -89,23 +89,20 @@ export function createRunGraphScheduler(input: {
       deferred.clear()
       replan.clear()
 
-      for (const node of input.graph) {
-        const state = await input.store.loadState(
-          input.protocol,
-          node.subjectId,
-        )
+      for (const subjectId of input.taskHandles) {
+        const state = await input.store.loadState(input.protocol, subjectId)
         if (!state) {
           continue
         }
         if (state.status === TaskStatus.Done) {
-          done.add(node.subjectId)
+          done.add(subjectId)
         } else if (state.status === TaskStatus.Blocked) {
-          blocked.add(node.subjectId)
+          blocked.add(subjectId)
         } else if (state.status === TaskStatus.Replan) {
-          replan.add(node.subjectId)
+          replan.add(subjectId)
         } else if (state.status === TaskStatus.Suspended) {
-          suspended.add(node.subjectId)
-          deferred.add(node.subjectId)
+          suspended.add(subjectId)
+          deferred.add(subjectId)
         }
       }
 

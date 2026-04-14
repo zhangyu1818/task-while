@@ -85,7 +85,6 @@ test('CodexAgentClient passes prompt and structured output schema to streamed SD
 
   const result = await client.implement({
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     taskHandle: 'T001',
     prompt: createTaskPrompt({
@@ -236,7 +235,6 @@ test('CodexAgentClient preserves structured item payloads for verbose rendering'
 
   const result = await client.implement({
     attempt: 1,
-    generation: 1,
     lastFindings: [],
     prompt: createTaskPrompt(),
     taskHandle: 'T001',

@@ -5,7 +5,6 @@ import { buildImplementerPrompt } from '../src/prompts/implementer'
 test('buildImplementerPrompt makes while task boundaries explicit', async () => {
   const prompt = await buildImplementerPrompt({
     attempt: 2,
-    generation: 3,
     taskHandle: 'T001',
     lastFindings: [
       {
@@ -50,7 +49,6 @@ test('buildImplementerPrompt makes while task boundaries explicit', async () => 
   expect(prompt).toContain('Do not declare the task finalized.')
   expect(prompt).toContain('Task Handle: T001')
   expect(prompt).toContain('Attempt:\n2')
-  expect(prompt).toContain('Generation:\n3')
   expect(prompt).toContain('Previous Findings:')
   expect(prompt).toContain('"file":"src/greeting.ts"')
   expect(prompt).toContain('"issue":"output text does not satisfy acceptance"')

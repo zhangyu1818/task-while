@@ -16,42 +16,8 @@ test('default workflow task source derives completion criteria from raw task lin
 test('workflow task source double returns source prompt without runtime metadata sections', async () => {
   const { runtime } = createRuntime()
 
-  const implementPrompt = await runtime.taskSource.buildImplementPrompt({
-    attempt: 2,
-    generation: 3,
-    taskHandle: 'T001',
-    lastFindings: [
-      {
-        file: 'src/greeting.ts',
-        fixHint: 'match task line',
-        issue: 'wrong output',
-        severity: 'medium',
-      },
-    ],
-  })
-  const reviewPrompt = await runtime.taskSource.buildReviewPrompt({
-    actualChangedFiles: ['src/greeting.ts'],
-    attempt: 2,
-    generation: 3,
-    taskHandle: 'T001',
-    implement: {
-      assumptions: [],
-      needsHumanAttention: false,
-      notes: [],
-      status: 'implemented',
-      summary: 'done',
-      taskHandle: 'T001',
-      unresolvedItems: [],
-    },
-    lastFindings: [
-      {
-        file: 'src/greeting.ts',
-        fixHint: 'match task line',
-        issue: 'wrong output',
-        severity: 'medium',
-      },
-    ],
-  })
+  const implementPrompt = await runtime.taskSource.buildImplementPrompt('T001')
+  const reviewPrompt = await runtime.taskSource.buildReviewPrompt('T001')
 
   expect(implementPrompt.sections.map((section) => section.title)).toEqual([
     'Task',

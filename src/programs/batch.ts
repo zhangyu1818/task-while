@@ -2,11 +2,13 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 
 import { TaskStatus, type Artifact } from '../harness/state'
-import { action, sequence } from '../harness/workflow-builders'
+import {
+  createWorkflowProgram,
+  type WorkflowProgram,
+} from '../harness/workflow-program'
 import { writeJsonAtomic } from '../utils/fs'
 
-import type { BatchStructuredOutputProvider } from '../batch/provider'
-import type { WorkflowProgram } from '../harness/workflow-program'
+import type { AgentPort } from '../ports/agent'
 
 export enum BatchPhase {
   Persist = 'persist',
@@ -27,19 +29,34 @@ export enum BatchArtifactKind {
   ProcessResult = 'process_result',
 }
 
+function buildBatchPrompt(input: {
+  content: string
+  filePath: string
+  prompt: string
+}) {
+  return [
+    'Process exactly one file and return structured output only.',
+    input.prompt,
+    `File path: ${input.filePath}`,
+    'File content:',
+    input.content,
+  ].join('\n\n')
+}
+
 export function createBatchProgram(deps: {
+  agent: AgentPort
   configDir: string
   maxRetries: number
   outputSchema: Record<string, unknown>
   prompt: string
-  provider: BatchStructuredOutputProvider
   results: Record<string, unknown>
   resultsPath: string
   validateOutput: (value: unknown) => void
 }): WorkflowProgram {
-  return sequence(
+  return createWorkflowProgram(
     [
-      action(BatchPhase.Prepare, {
+      {
+        name: BatchPhase.Prepare,
         async run(ctx) {
           const content = await readFile(
             path.join(deps.configDir, ctx.subjectId),
@@ -57,19 +74,22 @@ export function createBatchProgram(deps: {
             result: { kind: BatchResult.PrepareCompleted },
           }
         },
-      }),
-      action(BatchPhase.Process, {
+      },
+      {
+        name: BatchPhase.Process,
         async run(ctx) {
           const prepareArtifact = ctx.artifacts.get<{
             content: string
             filePath: string
           }>(BatchArtifactKind.PrepareResult)
           try {
-            const output = await deps.provider.runFile({
-              content: prepareArtifact!.payload.content,
-              filePath: prepareArtifact!.payload.filePath,
+            const output = await deps.agent.execute({
               outputSchema: deps.outputSchema,
-              prompt: deps.prompt,
+              prompt: buildBatchPrompt({
+                content: prepareArtifact!.payload.content,
+                filePath: prepareArtifact!.payload.filePath,
+                prompt: deps.prompt,
+              }),
             })
             deps.validateOutput(output)
             const artifact: Artifact<{ output: unknown }> = {
@@ -89,8 +109,9 @@ export function createBatchProgram(deps: {
             }
           }
         },
-      }),
-      action(BatchPhase.Persist, {
+      },
+      {
+        name: BatchPhase.Persist,
         async run(ctx) {
           const processArtifact = ctx.artifacts.get<{ output: unknown }>(
             BatchArtifactKind.ProcessResult,
@@ -109,7 +130,7 @@ export function createBatchProgram(deps: {
             result: { kind: BatchResult.PersistCompleted },
           }
         },
-      }),
+      },
     ],
     {
       [BatchPhase.Persist]: {

@@ -3,22 +3,23 @@ import path from 'node:path'
 import { execa } from 'execa'
 import * as fsExtra from 'fs-extra'
 
+import type { TaskSourceName } from '../task-sources/types'
 import type { WorkspaceContext } from '../types'
 
 export interface ResolveWorkspaceContextInput {
   cwd: string
   feature?: string | undefined
-  taskSource?: string | undefined
+  taskSource?: TaskSourceName | undefined
 }
 
-function resolveFeatureRoot(workspaceRoot: string, taskSource: string) {
+function resolveFeatureRoot(workspaceRoot: string, taskSource: TaskSourceName) {
   if (taskSource === 'openspec') {
     return path.join(workspaceRoot, 'openspec', 'changes')
   }
   return path.join(workspaceRoot, 'specs')
 }
 
-async function resolveWorkspaceRoot(cwd: string, taskSource: string) {
+async function resolveWorkspaceRoot(cwd: string, taskSource: TaskSourceName) {
   const workspaceRoot = path.resolve(cwd)
   const featureRoot = resolveFeatureRoot(workspaceRoot, taskSource)
   const featureRootExists = await fsExtra.pathExists(featureRoot)
@@ -35,7 +36,10 @@ async function resolveWorkspaceRoot(cwd: string, taskSource: string) {
   return workspaceRoot
 }
 
-async function readFeatureDirs(workspaceRoot: string, taskSource: string) {
+async function readFeatureDirs(
+  workspaceRoot: string,
+  taskSource: TaskSourceName,
+) {
   const featureRoot = resolveFeatureRoot(workspaceRoot, taskSource)
   const entries = await fsExtra.readdir(featureRoot, {
     withFileTypes: true,

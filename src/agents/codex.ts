@@ -302,9 +302,3 @@ export class CodexAgentClient implements ImplementerProvider, ReviewerProvider {
     return validateReviewOutput(output)
   }
 }
-
-export function createCodexProvider(
-  options: CodexAgentClientOptions,
-): ImplementerProvider & ReviewerProvider {
-  return new CodexAgentClient(options)
-}
