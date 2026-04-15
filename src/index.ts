@@ -4,6 +4,7 @@ import arg from 'arg'
 
 import { runBatchCommand } from './commands/batch'
 import { runCommand } from './commands/run'
+import { runSimplifyCommand } from './commands/simplify'
 import { resolveWorkspaceContext } from './runtime/workspace-resolver'
 import { loadWorkflowConfig } from './workflow/config'
 
@@ -18,6 +19,12 @@ interface RunOptions {
 }
 
 interface BatchOptions {
+  configPath: string
+  verbose: boolean
+}
+
+interface SimplifyOptions {
+  cdpUrl?: string
   configPath: string
   verbose: boolean
 }
@@ -48,6 +55,27 @@ function parseRunOptions(args: string[]) {
     options.feature = values['--feature']
   }
   return options
+}
+
+function parseSimplifyOptions(args: string[]) {
+  const values = arg(
+    {
+      '--cdp-url': String,
+      '--config': String,
+      '--verbose': Boolean,
+    },
+    { argv: args },
+  )
+  assertNoPositionalArgs(values)
+  const configPath = values['--config']
+  if (!configPath) {
+    throw new Error('Missing required --config')
+  }
+  return {
+    configPath,
+    verbose: values['--verbose'] ?? false,
+    ...(values['--cdp-url'] ? { cdpUrl: values['--cdp-url'] } : {}),
+  } satisfies SimplifyOptions
 }
 
 function parseBatchOptions(args: string[]) {
@@ -96,6 +124,19 @@ export async function runCli(argv = process.argv.slice(2)) {
         config,
         ...(options.untilTaskId ? { untilTaskId: options.untilTaskId } : {}),
         verbose: options.verbose,
+      })
+      process.stdout.write(
+        `${inspect(result, { colors: false, depth: null })}\n`,
+      )
+      return
+    }
+    case 'simplify': {
+      const options = parseSimplifyOptions(args)
+      const result = await runSimplifyCommand({
+        configPath: options.configPath,
+        cwd: process.cwd(),
+        verbose: options.verbose,
+        ...(options.cdpUrl ? { cdpUrl: options.cdpUrl } : {}),
       })
       process.stdout.write(
         `${inspect(result, { colors: false, depth: null })}\n`,

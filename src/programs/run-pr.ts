@@ -7,7 +7,6 @@ import {
 } from '../commands/run-branch-helpers'
 import {
   errorRetry,
-  KernelResultKind,
   retryBudgetReached,
 } from '../harness/kernel'
 import { TaskStatus } from '../harness/state'
@@ -20,6 +19,7 @@ import {
 import { finalizeTaskCheckbox } from '../workflow/finalize-task-checkbox'
 import { createCodexRemoteReviewerProvider } from '../workflow/remote-reviewer'
 import { RunArtifactKind, RunPhase, RunResult } from './run-direct'
+import { createRunPrTransitions } from './run-pr-transitions'
 import {
   createSharedSteps,
   makeArtifact,
@@ -287,31 +287,12 @@ export function createRunPrProgram(deps: {
         },
       },
     ],
-    {
-      [RunPhase.Checkpoint]: {
-        [KernelResultKind.Error]: onError(RunPhase.Checkpoint),
-        [RunResult.CheckpointCreated]: running(RunPhase.Review),
-      },
-      [RunPhase.Implement]: {
-        [KernelResultKind.Error]: onError(RunPhase.Implement),
-        [RunResult.ImplementationGenerated]: running(RunPhase.Verify),
-      },
-      [RunPhase.Integrate]: {
-        [KernelResultKind.Error]: onError(RunPhase.Integrate),
-        [RunResult.IntegrateAlreadyIntegrated]: done,
-        [RunResult.IntegrateCompleted]: done,
-      },
-      [RunPhase.Review]: {
-        [KernelResultKind.Error]: onError(RunPhase.Implement),
-        [RunResult.ReviewApproved]: running(RunPhase.Integrate),
-        [RunResult.ReviewRejected]: retryImplementOrBlock,
-        [RunResult.ReviewReplanRequired]: replan,
-      },
-      [RunPhase.Verify]: {
-        [KernelResultKind.Error]: onError(RunPhase.Implement),
-        [RunResult.VerifyFailed]: retryImplementOrBlock,
-        [RunResult.VerifyPassed]: running(RunPhase.Checkpoint),
-      },
-    },
+    createRunPrTransitions({
+      done,
+      onError,
+      replan,
+      retryImplementOrBlock,
+      running,
+    }),
   )
 }
