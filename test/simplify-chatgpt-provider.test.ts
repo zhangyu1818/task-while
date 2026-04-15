@@ -2,14 +2,30 @@ import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { execa } from 'execa'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
-import {
-  createProjectZip,
-  runChatGptPage,
-  type PageLike,
-} from '../src/simplify/chatgpt-provider'
+const execaState = vi.hoisted(() => ({
+  impl: null as ((...args: unknown[]) => unknown) | null,
+}))
+
+vi.mock('execa', async (importOriginal) => {
+  const original = await importOriginal<typeof import('execa')>()
+  return {
+    ...original,
+    execa: vi.fn((...args: Parameters<typeof original.execa>) => {
+      if (execaState.impl) {
+        return execaState.impl(...args)
+      }
+      return original.execa(...args)
+    }),
+  }
+})
+
+const { execa } = await import('execa')
+const { createProjectZip, runChatGptPage } = await import(
+  '../src/simplify/chatgpt-provider'
+)
+type PageLike = import('../src/simplify/chatgpt-provider').PageLike
 
 const workspaces: string[] = []
 
@@ -19,10 +35,48 @@ async function createWorkspace() {
   return root
 }
 
+beforeEach(() => {
+  execaState.impl = null
+})
+
 afterEach(async () => {
   await Promise.all(
     workspaces.splice(0).map((w) => rm(w, { force: true, recursive: true })),
   )
+})
+
+test('createProjectZip shells out to the system zip command', async () => {
+  const root = await createWorkspace()
+  await mkdir(path.join(root, 'src'), { recursive: true })
+  await writeFile(path.join(root, 'src', 'index.ts'), 'export const a = 1\n')
+  await writeFile(path.join(root, 'src', 'utils.ts'), 'export const b = 2\n')
+  const zipPath = path.join(root, 'output.zip')
+
+  const calls: unknown[][] = []
+  execaState.impl = vi.fn(async (...args: unknown[]) => {
+    calls.push(args)
+    return { command: '', escapedCommand: '', exitCode: 0, stderr: '', stdout: '' }
+  })
+
+  await createProjectZip({
+    configPath: path.join(root, 'simplify.yaml'),
+    exclude: [],
+    outputPath: zipPath,
+    projectDir: root,
+  })
+
+  expect(calls).toHaveLength(1)
+  const [file, args, options] = calls[0] as [
+    string,
+    string[],
+    { cwd: string; input: string },
+  ]
+  expect(file).toBe('zip')
+  expect(args).toEqual(['-q', zipPath, '-@'])
+  expect(options).toMatchObject({
+    cwd: root,
+    input: 'src/index.ts\nsrc/utils.ts',
+  })
 })
 
 test('createProjectZip creates a zip containing project files', async () => {
