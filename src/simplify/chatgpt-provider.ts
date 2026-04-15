@@ -1,9 +1,7 @@
-import { createWriteStream } from 'node:fs'
 import { access, readFile, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout } from 'node:timers/promises'
 
-import archiver from 'archiver'
 import { execa } from 'execa'
 import { glob } from 'glob'
 import { chromium } from 'playwright'
@@ -89,20 +87,10 @@ export async function createProjectZip(options: {
     ignore: [...options.exclude, configRelative],
     nodir: true,
   })
-
-  const archive = archiver('zip', { zlib: { level: 9 } })
-  const output = createWriteStream(options.outputPath)
-
-  await new Promise<void>((resolve, reject) => {
-    output.on('close', resolve)
-    archive.on('error', reject)
-    archive.pipe(output)
-
-    for (const file of files) {
-      archive.file(path.join(options.projectDir, file), { name: file })
-    }
-
-    archive.finalize()
+  files.sort()
+  await execa('zip', ['-q', options.outputPath, '-@'], {
+    cwd: options.projectDir,
+    input: files.join('\n'),
   })
 }
 
