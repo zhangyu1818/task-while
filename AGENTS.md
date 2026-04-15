@@ -1,65 +1,70 @@
 # AGENTS
 
-## Purpose
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-This file defines how agents should collaborate **when working on the while repository itself**.
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-## Working Agreements
+## 1. Think Before Coding
 
-- Respond in Chinese when interacting with the user in this repository.
-- Do not add code comments unless the user explicitly asks for them.
-- Prefer `pnpm` for dependency management and script execution.
-- Before finalizing or committing changes, run `pnpm lint:fix` and `pnpm format`.
-- Keep documentation aligned with the current implementation. If behavior changes, update the relevant docs in the same change.
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-## Repository Intent
+Before implementing:
 
-This repository implements a task orchestrator. The codebase itself is not expected to run its own feature planning workflow during normal development. Most repository work falls into these areas:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-- orchestration logic
-- runtime persistence
-- workspace resolution
-- task graph normalization
-- agent adapters
-- prompt construction
-- verification and tests
+## 2. Simplicity First
 
-## Source of Truth
+**Minimum code that solves the problem. Nothing speculative.**
 
-When documents disagree, resolve them in this order:
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
 
-1. current code
-2. tests that reflect current code behavior
-3. `README.md`
-4. other documentation
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-## Architecture Expectations
+## 3. Surgical Changes
 
-Changes should preserve the current architectural split:
+**Touch only what you must. Clean up only your own mess.**
 
-- core engine for state transitions and report derivation
-- orchestrator for workflow execution
-- runtime adapters for filesystem, workspace, and verifier behavior
-- agent clients for provider integration
+When editing existing code:
 
-Avoid re-coupling state transitions to filesystem or subprocess logic.
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
 
-## Testing Expectations
+When your changes create orphans:
 
-Favor tests that reflect real behavior:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
 
-- use real filesystem behavior when validating runtime persistence or workspace discovery
-- use real verify commands when the scenario depends on subprocess execution
-- use fakes only when isolating the orchestration core or agent boundary
+The test: Every changed line should trace directly to the user's request.
 
-Do not add assertions that only exist to increase coverage without protecting meaningful behavior.
+## 4. Goal-Driven Execution
 
-## Change Discipline
+**Define success criteria. Loop until verified.**
 
-When modifying behavior, keep these in sync when applicable:
+Transform tasks into verifiable goals:
 
-- schema and exported types
-- runtime storage layout
-- command behavior
-- documentation
-- tests
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
