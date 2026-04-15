@@ -1,6 +1,6 @@
 {
   "name": "task-while",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "packageManager": "pnpm@10.32.1",
   "description": "Git-first task orchestrator for task-source workspaces",
   "author": "Zhang Yu",
