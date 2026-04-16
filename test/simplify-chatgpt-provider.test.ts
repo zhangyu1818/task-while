@@ -8,6 +8,11 @@ const execaState = vi.hoisted(() => ({
   impl: null as ((...args: unknown[]) => unknown) | null,
 }))
 
+const timeoutState = vi.hoisted(() => ({
+  calls: [] as number[],
+  onCall: null as null | ((ms: number) => void | Promise<void>),
+}))
+
 vi.mock('execa', async (importOriginal) => {
   const original = await importOriginal<typeof import('execa')>()
   return {
@@ -21,10 +26,18 @@ vi.mock('execa', async (importOriginal) => {
   }
 })
 
+vi.mock('node:timers/promises', () => ({
+  setTimeout: vi.fn(async (ms: number) => {
+    timeoutState.calls.push(ms)
+    if (timeoutState.onCall) {
+      await timeoutState.onCall(ms)
+    }
+  }),
+}))
+
 const { execa } = await import('execa')
-const { createProjectZip, runChatGptPage } = await import(
-  '../src/simplify/chatgpt-provider'
-)
+const { createProjectZip, runChatGptPage, waitForDownloadedDiffFile } =
+  await import('../src/simplify/chatgpt-provider')
 type PageLike = import('../src/simplify/chatgpt-provider').PageLike
 
 const workspaces: string[] = []
@@ -37,9 +50,12 @@ async function createWorkspace() {
 
 beforeEach(() => {
   execaState.impl = null
+  timeoutState.calls = []
+  timeoutState.onCall = null
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(
     workspaces.splice(0).map((w) => rm(w, { force: true, recursive: true })),
   )
@@ -146,7 +162,6 @@ interface FakeLocatorConfig {
   count?: (() => number) | number
   filterResult?: FakeLocator
   nth?: FakeLocator[]
-  textContent?: string
 }
 
 class FakeLocator {
@@ -195,11 +210,6 @@ class FakeLocator {
       new FakeLocator(this.log, `${this.key}[${index}]`)
     )
   }
-
-  public async textContent() {
-    return this.config.textContent ?? null
-  }
-
   public async waitFor(options?: { state?: WaitState }) {
     this.log.push(`wait:${this.key}:${options?.state ?? 'visible'}`)
   }
@@ -246,10 +256,7 @@ class FakePage {
   }
 }
 
-function createSimplifyPage(options?: {
-  diffAppearsAfterPolls?: number
-  diffFilename?: string
-}) {
+function createSimplifyPage(options?: { diffAppearsAfterPolls?: number }) {
   const page = new FakePage()
 
   page.defineTestId(
@@ -284,10 +291,8 @@ function createSimplifyPage(options?: {
 
   let pollCount = 0
   const appearsAfter = options?.diffAppearsAfterPolls ?? 1
-  const diffFilename = options?.diffFilename ?? 'changes.diff'
 
   const diffButton = new FakeLocator(page.log, 'diff-button', {
-    textContent: diffFilename,
     count() {
       pollCount++
       return pollCount >= appearsAfter ? 1 : 0
@@ -301,25 +306,45 @@ function createSimplifyPage(options?: {
   return { diffButton, page }
 }
 
-test('runChatGptPage navigates, sets up model, drops file, sends, and polls for diff', async () => {
+test('runChatGptPage navigates, sets up model, drops file, sends, and clicks a button whose text contains diff', async () => {
   const root = await createWorkspace()
   const zipPath = path.join(root, 'test.zip')
   await writeFile(zipPath, 'fake-zip-content')
   const { page } = createSimplifyPage({ diffAppearsAfterPolls: 1 })
 
-  const diffFilename = await runChatGptPage(page as PageLike, {
+  await runChatGptPage(page as PageLike, {
     prompt: 'simplify please',
     zipPath,
-    async delay() {},
   })
 
-  expect(diffFilename).toBe('changes.diff')
   expect(page.log).toContain('goto:https://chatgpt.com/')
   expect(page.log).toContain('click:model-pro')
   expect(page.log).toContain('fill:composer:simplify please')
   expect(page.log).toContain('click:send-button')
-  expect(page.log).toContain(String.raw`filter:thread-buttons:/\.diff$/i`)
+  expect(page.log).toContain(String.raw`filter:thread-buttons:/diff/i`)
   expect(page.log).toContain('click:diff-button')
+})
+
+test('runChatGptPage waits 1-3 seconds before each click', async () => {
+  const root = await createWorkspace()
+  const zipPath = path.join(root, 'test.zip')
+  await writeFile(zipPath, 'fake-zip-content')
+  const { page } = createSimplifyPage({ diffAppearsAfterPolls: 1 })
+
+  vi.spyOn(Math, 'random')
+    .mockReturnValueOnce(0)
+    .mockReturnValueOnce(0.25)
+    .mockReturnValueOnce(0.5)
+    .mockReturnValueOnce(0.75)
+    .mockReturnValueOnce(0.9)
+    .mockReturnValueOnce(0.1)
+
+  await runChatGptPage(page as PageLike, {
+    prompt: 'simplify please',
+    zipPath,
+  })
+
+  expect(timeoutState.calls).toEqual([1000, 1500, 2000, 2500, 60_000, 2800, 1200])
 })
 
 test('runChatGptPage polls multiple times until diff button appears', async () => {
@@ -328,15 +353,31 @@ test('runChatGptPage polls multiple times until diff button appears', async () =
   await writeFile(zipPath, 'fake-zip-content')
   const { page } = createSimplifyPage({ diffAppearsAfterPolls: 3 })
 
-  const diffFilename = await runChatGptPage(page as PageLike, {
+  await runChatGptPage(page as PageLike, {
     prompt: 'simplify',
     zipPath,
-    async delay() {},
   })
 
-  expect(diffFilename).toBe('changes.diff')
   const countCalls = page.log.filter((entry) =>
     entry.startsWith('count:diff-button'),
   )
   expect(countCalls.length).toBe(3)
+})
+
+test('waitForDownloadedDiffFile returns a newly downloaded diff file', async () => {
+  const root = await createWorkspace()
+  const downloadedDiffPath = path.join(root, 'downloaded.diff')
+  await writeFile(path.join(root, 'existing.diff'), 'old diff')
+
+  let created = false
+  timeoutState.onCall = async (ms) => {
+    if (ms === 1_000 && !created) {
+      created = true
+      await writeFile(downloadedDiffPath, 'new diff')
+    }
+  }
+
+  const result = await waitForDownloadedDiffFile(root)
+
+  expect(result).toBe(downloadedDiffPath)
 })

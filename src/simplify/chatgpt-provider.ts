@@ -1,4 +1,4 @@
-import { access, readFile, unlink } from 'node:fs/promises'
+import { readFile, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout } from 'node:timers/promises'
 
@@ -15,7 +15,11 @@ const REASONING_OPTIONS_SELECTOR = '[role="menu"] [role="menuitemradio"]'
 const COMPOSER_SELECTOR = 'main [contenteditable="true"][role="textbox"]'
 const SEND_BUTTON_TEST_ID = 'send-button'
 const THREAD_SELECTOR = '#thread'
-const DIFF_BUTTON_PATTERN = /\.diff$/i
+const DIFF_BUTTON_PATTERN = /diff/i
+const CLICK_DELAY_MIN_MS = 1_000
+const CLICK_DELAY_MAX_MS = 3_000
+const DOWNLOADED_DIFF_GLOB = '*.diff'
+const DOWNLOAD_POLL_INTERVAL_MS = 1_000
 const POLL_INTERVAL_MS = 60_000
 const SEND_DELAY_MS = 60_000
 
@@ -40,7 +44,6 @@ interface LocatorLike {
   first: () => LocatorLike
   getAttribute: (name: string) => Promise<null | string>
   nth: (index: number) => LocatorLike
-  textContent: () => Promise<null | string>
   waitFor: (options?: { state?: WaitState }) => Promise<void>
 }
 
@@ -74,6 +77,18 @@ interface BrowserConstructors {
   ) => unknown
 }
 
+function getRandomClickDelay(): number {
+  const range = CLICK_DELAY_MAX_MS - CLICK_DELAY_MIN_MS
+  const value = Math.max(0, Math.min(1, Math.random()))
+  const offset = Math.min(range, Math.floor(value * (range + 1)))
+  return CLICK_DELAY_MIN_MS + offset
+}
+
+async function clickWithRandomDelay(locator: LocatorLike) {
+  await setTimeout(getRandomClickDelay())
+  await locator.click()
+}
+
 export async function createProjectZip(options: {
   configPath: string
   exclude: string[]
@@ -97,21 +112,21 @@ export async function createProjectZip(options: {
 async function ensureProModel(page: PageLike) {
   const switcher = page.getByTestId(MODEL_SWITCHER_TEST_ID)
   await switcher.waitFor({ state: 'visible' })
-  await switcher.click()
+  await clickWithRandomDelay(switcher)
 
   const proOption = page.getByTestId(PRO_MODEL_TEST_ID)
   await proOption.waitFor({ state: 'visible' })
   if ((await proOption.getAttribute('aria-checked')) !== 'true') {
-    await proOption.click()
+    await clickWithRandomDelay(proOption)
     return
   }
-  await switcher.click()
+  await clickWithRandomDelay(switcher)
 }
 
 async function setHighestReasoning(page: PageLike) {
   const btn = page.locator(REASONING_BUTTON_SELECTOR)
   await btn.waitFor({ state: 'visible' })
-  await btn.click()
+  await clickWithRandomDelay(btn)
 
   const options = page.locator(REASONING_OPTIONS_SELECTOR)
   const first = options.nth(0)
@@ -122,7 +137,7 @@ async function setHighestReasoning(page: PageLike) {
   }
   const highest = options.nth(count - 1)
   if ((await highest.getAttribute('aria-checked')) !== 'true') {
-    await highest.click()
+    await clickWithRandomDelay(highest)
   }
 }
 
@@ -162,54 +177,58 @@ async function fillComposer(page: PageLike, prompt: string) {
   await composer.fill(prompt)
 }
 
-async function pollForDiffButton(
-  page: PageLike,
-  delay: (ms: number) => Promise<void>,
-): Promise<string> {
+async function pollForDiffButton(page: PageLike): Promise<void> {
   const threadButtons = page.locator(`${THREAD_SELECTOR} button`)
 
   for (;;) {
     const diffButtons = threadButtons.filter({ hasText: DIFF_BUTTON_PATTERN })
     if ((await diffButtons.count()) > 0) {
-      const text = await diffButtons.first().textContent()
-      await diffButtons.first().click()
-      return text ?? 'unknown.diff'
+      await clickWithRandomDelay(diffButtons.first())
+      return
     }
-    await delay(POLL_INTERVAL_MS)
+    await setTimeout(POLL_INTERVAL_MS)
   }
 }
 
 export async function runChatGptPage(
   page: PageLike,
   options: {
-    delay?: (ms: number) => Promise<void>
     prompt: string
     zipPath: string
   },
-): Promise<string> {
-  const delay = options.delay ?? ((ms: number) => setTimeout(ms))
-
+): Promise<void> {
   await page.goto(CHATGPT_URL, { waitUntil: 'domcontentloaded' })
   await ensureProModel(page)
   await setHighestReasoning(page)
   await dropFile(page, options.zipPath)
   await fillComposer(page, options.prompt)
-  await delay(SEND_DELAY_MS)
+  await setTimeout(SEND_DELAY_MS)
 
   const sendButton = page.getByTestId(SEND_BUTTON_TEST_ID)
-  await sendButton.click()
+  await clickWithRandomDelay(sendButton)
 
-  return pollForDiffButton(page, delay)
+  await pollForDiffButton(page)
 }
 
-async function waitForFile(filePath: string) {
+async function listDownloadedDiffFiles(dirPath: string): Promise<string[]> {
+  const files = await glob(DOWNLOADED_DIFF_GLOB, {
+    cwd: dirPath,
+    nodir: true,
+  })
+  files.sort()
+  return files.map((file) => path.join(dirPath, file))
+}
+
+export async function waitForDownloadedDiffFile(dirPath: string): Promise<string> {
+  const knownFiles = new Set(await listDownloadedDiffFiles(dirPath))
+
   for (;;) {
-    try {
-      await access(filePath)
-      return
-    } catch {
-      await setTimeout(1000)
+    const currentFiles = await listDownloadedDiffFiles(dirPath)
+    const newFile = currentFiles.find((file) => !knownFiles.has(file))
+    if (newFile) {
+      return newFile
     }
+    await setTimeout(DOWNLOAD_POLL_INTERVAL_MS)
   }
 }
 
@@ -249,13 +268,14 @@ export async function runSimplifyTurn(input: SimplifyTurnInput): Promise<void> {
   })
 
   try {
-    const diffFilename = await runChatGptPage(page, {
+    const diffPathPromise = waitForDownloadedDiffFile(input.cwd)
+
+    await runChatGptPage(page, {
       prompt: input.prompt,
       zipPath,
     })
 
-    const diffPath = path.join(input.cwd, diffFilename)
-    await waitForFile(diffPath)
+    const diffPath = await diffPathPromise
 
     await execa('git', ['apply', diffPath], { cwd: input.cwd })
 
