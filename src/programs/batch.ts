@@ -43,6 +43,13 @@ function buildBatchPrompt(input: {
   ].join('\n\n')
 }
 
+function formatBatchError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message.trim().replaceAll('\n', String.raw`\n`)
+  }
+  return String(error).trim().replaceAll('\n', String.raw`\n`)
+}
+
 export function createBatchProgram(deps: {
   agent: AgentPort
   configDir: string
@@ -103,7 +110,10 @@ export function createBatchProgram(deps: {
               artifact,
               result: { kind: BatchResult.ProcessCompleted },
             }
-          } catch {
+          } catch (error) {
+            process.stderr.write(
+              `[batch] process-error file=${ctx.subjectId} error=${formatBatchError(error)}\n`,
+            )
             return {
               result: { kind: BatchResult.ProcessRetryRequested },
             }

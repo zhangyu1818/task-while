@@ -171,4 +171,56 @@ describe('batch program', () => {
       result: { kind: BatchResult.ProcessRetryRequested },
     })
   })
+
+  test('Process action logs errors before returning retry request', async () => {
+    const stderrWrite = vi
+      .spyOn(process.stderr, 'write')
+      .mockReturnValue(true)
+    const agent = {
+      name: 'codex',
+      execute: vi.fn(async () => {
+        throw new Error('schema mismatch')
+      }),
+    }
+    const program = createBatchProgram({
+      agent,
+      configDir: '/tmp',
+      maxRetries: 3,
+      outputSchema: { type: 'object' },
+      prompt: 'summarize file',
+      results: {},
+      resultsPath: '/tmp/results.json',
+      validateOutput() {},
+    })
+
+    const node = expectActionNode(program.nodes[BatchPhase.Process])
+
+    const prepareArtifact = {
+      id: 'prepare',
+      kind: BatchArtifactKind.PrepareResult,
+      payload: { content: 'alpha', filePath: 'input/a.txt' },
+      subjectId: 'input/a.txt',
+      timestamp: '2026-04-10T00:00:00.000Z',
+    } satisfies Artifact<{ content: string; filePath: string }>
+    const artifacts: TypedArtifactMap = {
+      get: <T = unknown>() => prepareArtifact as Artifact<T>,
+      has: () => true,
+      set() {},
+    }
+
+    const result = await node.run({
+      artifacts,
+      config: {},
+      state: makeState(),
+      subjectId: 'input/a.txt',
+    })
+
+    const output = stderrWrite.mock.calls.map(([chunk]) => String(chunk)).join('')
+    expect(output).toContain(
+      '[batch] process-error file=input/a.txt error=schema mismatch\n',
+    )
+    expect(result).toStrictEqual({
+      result: { kind: BatchResult.ProcessRetryRequested },
+    })
+  })
 })
