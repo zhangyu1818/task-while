@@ -1,0 +1,7 @@
+interface:
+  display_name: 'Generate Simplify YAML'
+  short_description: 'Create a task-while simplify config'
+  default_prompt: 'Use $generate-simplify-yaml to create a simplify.yaml from my repository structure, using the standard template with {{turn}}, docs/simplify/turn_{{turn}}.md, and .diff delivery constraints.'
+
+policy:
+  allow_implicit_invocation: true
